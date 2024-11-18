@@ -1,7 +1,9 @@
 [package]
 name = "wot-esp-hal-demo"
 version = "0.1.0"
+authors = [ "Luca Barbato <lu_zero@gentoo.org>"]
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 esp-backtrace = { version = "0.14.1", features = [
