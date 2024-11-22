@@ -1,10 +1,16 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;
 
 use alloc::{format, string::String};
+use core::{
+    cell::OnceCell,
+    net::{Ipv4Addr, Ipv6Addr},
+};
+
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
@@ -86,6 +92,8 @@ macro_rules! mk_static {
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
+static RNG: CriticalSectionMutex<OnceCell<Rng>> = CriticalSectionMutex::new(OnceCell::new());
+
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
@@ -95,18 +103,17 @@ async fn main(spawner: Spawner) {
         config
     });
 
+    let rng = Rng::new(peripherals.RNG);
+
+    RNG.lock(|c| _ = c.set(rng.clone()));
+
     esp_alloc::heap_allocator!(72 * 1024);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     let init = &*mk_static!(
         EspWifiController<'static>,
-        init(
-            timg0.timer0,
-            Rng::new(peripherals.RNG),
-            peripherals.RADIO_CLK,
-        )
-        .unwrap()
+        init(timg0.timer0, rng, peripherals.RADIO_CLK,).unwrap()
     );
 
     let wifi = peripherals.WIFI;
@@ -127,7 +134,7 @@ async fn main(spawner: Spawner) {
         Stack::new(
             wifi_interface,
             config,
-            mk_static!(StackResources<3>, StackResources::<3>::new()),
+            mk_static!(StackResources<4>, StackResources::<4>::new()),
             seed
         )
     );
@@ -294,6 +301,8 @@ async fn main(spawner: Spawner) {
         .keep_connection_alive()
     );
 
+    spawner.spawn(mdns_task(stack)).ok();
+
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, app, config, app_state));
     }
@@ -330,6 +339,85 @@ async fn connection(mut controller: WifiController<'static>) {
             }
         }
     }
+}
+
+use edge_mdns::{
+    buf::VecBufAccess,
+    domain::base::Ttl,
+    host::{Host, Service, ServiceAnswers},
+    io::{self, DEFAULT_SOCKET},
+    HostAnswersMdnsHandler,
+};
+use edge_nal::UdpSplit;
+use edge_nal_embassy::{Udp, UdpBuffers};
+use embassy_sync::{
+    blocking_mutex::{raw::NoopRawMutex, CriticalSectionMutex},
+    signal::Signal,
+};
+
+#[embassy_executor::task]
+async fn mdns_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    let ipv4 = stack.config_v4().unwrap().address.address().0.into();
+
+    let (recv_buf, send_buf) = (
+        VecBufAccess::<NoopRawMutex, 1500>::new(),
+        VecBufAccess::<NoopRawMutex, 1500>::new(),
+    );
+
+    let b: UdpBuffers<2, 1500, 1500, 2> = UdpBuffers::new();
+
+    let u = Udp::new(stack, &b);
+
+    let mut socket = io::bind(&u, DEFAULT_SOCKET, Some(Ipv4Addr::UNSPECIFIED), None)
+        .await
+        .unwrap();
+
+    let (send, recv) = socket.split();
+
+    let host = Host {
+        hostname: "test",
+        ipv4,
+        ipv6: Ipv6Addr::UNSPECIFIED,
+        ttl: Ttl::from_secs(60),
+    };
+
+    let service = Service {
+        name: "shtc3-thing",
+        priority: 1,
+        weight: 5,
+        service: "_wot",
+        protocol: "_tcp",
+        port: 80,
+        service_subtypes: &[],
+        txt_kvs: &[
+            ("td", "/.well-known/wot"),
+            ("type", "Thing"),
+            ("scheme", "http"),
+        ],
+    };
+
+    let signal = Signal::new();
+
+    fn rng(buf: &mut [u8]) {
+        RNG.lock(|c| c.get().map(|r| r.clone().read(buf)));
+    }
+
+    let mdns = io::Mdns::<NoopRawMutex, _, _, _, _>::new(
+        Some(Ipv4Addr::UNSPECIFIED),
+        Some(0),
+        recv,
+        send,
+        recv_buf,
+        send_buf,
+        rng,
+        &signal,
+    );
+
+    mdns.run(HostAnswersMdnsHandler::new(ServiceAnswers::new(
+        &host, &service,
+    )))
+    .await
+    .unwrap()
 }
 
 #[embassy_executor::task]
