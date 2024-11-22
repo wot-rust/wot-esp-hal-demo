@@ -2,6 +2,9 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+extern crate alloc;
+
+use alloc::{format, string::String};
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
@@ -32,26 +35,15 @@ use picoserve::{
     routing::get,
 };
 use shtcx::{self, sensor_class::Sht2Gen, shtc3, PowerMode, ShtCx};
-
-#[macro_use]
-extern crate alloc;
+use wot_td::{builder::*, Thing};
 
 #[derive(Clone, Copy)]
-struct SharedControl(
-    &'static Mutex<
+struct AppState {
+    sensor: &'static Mutex<
         CriticalSectionRawMutex,
         &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>,
     >,
-);
-
-struct AppState {
-    shared_control: SharedControl,
-}
-
-impl picoserve::extract::FromRef<AppState> for SharedControl {
-    fn from_ref(state: &AppState) -> Self {
-        state.shared_control
-    }
+    td: &'static str,
 }
 
 type AppRouter = impl picoserve::routing::PathRouter<AppState>;
@@ -64,7 +56,7 @@ async fn web_task(
     stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
     app: &'static picoserve::Router<AppRouter, AppState>,
     config: &'static picoserve::Config<Duration>,
-    state: AppState,
+    state: &'static AppState,
 ) -> ! {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
@@ -80,7 +72,7 @@ async fn web_task(
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
         &mut http_buffer,
-        &state,
+        state,
     )
     .await
 }
@@ -150,10 +142,12 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(500)).await;
     }
 
+    let base_uri;
     println!("Waiting to get IP address...");
     loop {
         if let Some(config) = stack.config_v4() {
             println!("Got IP: {}", config.address);
+            base_uri = format!("http://{}", config.address);
             break;
         }
         Timer::after(Duration::from_millis(500)).await;
@@ -169,6 +163,43 @@ async fn main(spawner: Spawner) {
         i2c::I2c::new(peripherals.I2C0, sda, scl, 100.kHz())
     );
     let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>, shtc3(i2c));
+
+    let device_id = stack.hardware_address();
+
+    let td = Thing::builder("shtc3")
+        .finish_extend()
+        .id(format!("urn:example/shtc3/{device_id}"))
+        .base(base_uri)
+        .description("Example Thing exposing a shtc3 sensor")
+        .security(|builder| builder.no_sec().required().with_key("nosec_sc"))
+        .property("temperature", |p| {
+            p.finish_extend_data_schema()
+                .attype("TemperatureProperty")
+                .title("Temperature")
+                .description("Current temperature")
+                .form(|f| {
+                    f.href("/properties/temperature")
+                        .op(wot_td::thing::FormOperation::ReadProperty)
+                })
+                .number()
+                .read_only()
+        })
+        .property("humidity", |p| {
+            p.finish_extend_data_schema()
+                .attype("HumidityProperty")
+                .title("Humidity")
+                .description("Current humidity")
+                .form(|f| {
+                    f.href("/properties/humidity")
+                        .op(wot_td::thing::FormOperation::ReadProperty)
+                })
+                .number()
+                .read_only()
+        })
+        .build()
+        .unwrap();
+
+    let td = serde_json::to_string(&td).unwrap();
 
     sht.start_measurement(PowerMode::NormalMode).unwrap();
 
@@ -188,48 +219,57 @@ async fn main(spawner: Spawner) {
         Mutex::<CriticalSectionRawMutex, &'static mut ShtCx<Sht2Gen,&'static mut I2c<'static, I2C0, Blocking>>>::new(sht)
     );
 
-    let shared_control = SharedControl(sensor);
+    let app_state = mk_static!(
+        AppState,
+        AppState {
+            sensor,
+            td: mk_static!(String, td),
+        }
+    );
 
     fn make_app() -> picoserve::Router<AppRouter, AppState> {
         picoserve::Router::new()
-            .route("/.well-known/wot", get(|| async move { "Hello World" }))
             .route(
-                "/temperature",
-                get(
-                    |State(SharedControl(control)): State<SharedControl>| async move {
-                        let temperature = control.lock().await.get_temperature_measurement_result();
-
-                        if let Ok(temperature) = temperature {
-                            let body = format!("{}", temperature.as_degrees_celsius());
-
-                            return Response::ok(body);
-                        }
-
-                        Response::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Failed to read temperature value.".into(),
-                        )
-                    },
-                ),
+                "/.well-known/wot",
+                get(|State(state): State<AppState>| async move { state.td }),
             )
             .route(
-                "/humidity",
-                get(
-                    |State(SharedControl(control)): State<SharedControl>| async move {
-                        let humidity = control.lock().await.get_humidity_measurement_result();
+                "/properties/temperature",
+                get(|State(state): State<AppState>| async move {
+                    let temperature = state
+                        .sensor
+                        .lock()
+                        .await
+                        .get_temperature_measurement_result();
 
-                        if let Ok(humidity) = humidity {
-                            let body = format!("{}", humidity.as_percent());
+                    if let Ok(temperature) = temperature {
+                        let body = format!("{}", temperature.as_degrees_celsius());
 
-                            return Response::ok(body);
-                        }
+                        return Response::ok(body);
+                    }
 
-                        Response::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Failed to read humidity value.".into(),
-                        )
-                    },
-                ),
+                    Response::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to read temperature value.".into(),
+                    )
+                }),
+            )
+            .route(
+                "/properties/humidity",
+                get(|State(state): State<AppState>| async move {
+                    let humidity = state.sensor.lock().await.get_humidity_measurement_result();
+
+                    if let Ok(humidity) = humidity {
+                        let body = format!("{}", humidity.as_percent());
+
+                        return Response::ok(body);
+                    }
+
+                    Response::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to read humidity value.".into(),
+                    )
+                }),
             )
     }
 
@@ -246,13 +286,7 @@ async fn main(spawner: Spawner) {
     );
 
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(
-            id,
-            stack,
-            app,
-            config,
-            AppState { shared_control },
-        ));
+        spawner.must_spawn(web_task(id, stack, app, config, app_state));
     }
 }
 
