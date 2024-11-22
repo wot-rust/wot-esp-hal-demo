@@ -4,10 +4,19 @@
 
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{prelude::*, rng::Rng, timer::timg::TimerGroup};
+use esp_hal::{
+    gpio::Io,
+    i2c::{self, I2c},
+    peripherals::I2C0,
+    prelude::*,
+    rng::Rng,
+    timer::timg::TimerGroup,
+    Blocking,
+};
 use esp_println::println;
 use esp_wifi::{
     init,
@@ -17,25 +26,52 @@ use esp_wifi::{
     },
     EspWifiInitFor,
 };
-use picoserve::routing::get;
+use picoserve::{
+    extract::State,
+    response::{Response, StatusCode},
+    routing::get,
+};
+use shtcx::{self, sensor_class::Sht2Gen, shtc3, PowerMode, ShtCx};
 
-type AppRouter = impl picoserve::routing::PathRouter;
+#[macro_use]
+extern crate alloc;
 
-const WEB_TASK_POOL_SIZE: usize = 8;
+#[derive(Clone, Copy)]
+struct SharedControl(
+    &'static Mutex<
+        CriticalSectionRawMutex,
+        &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>,
+    >,
+);
+
+struct AppState {
+    shared_control: SharedControl,
+}
+
+impl picoserve::extract::FromRef<AppState> for SharedControl {
+    fn from_ref(state: &AppState) -> Self {
+        state.shared_control
+    }
+}
+
+type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+
+const WEB_TASK_POOL_SIZE: usize = 1;
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(
     id: usize,
     stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
-    app: &'static picoserve::Router<AppRouter>,
+    app: &'static picoserve::Router<AppRouter, AppState>,
     config: &'static picoserve::Config<Duration>,
+    state: AppState,
 ) -> ! {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve(
+    picoserve::listen_and_serve_with_state(
         id,
         app,
         config,
@@ -44,6 +80,7 @@ async fn web_task(
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
         &mut http_buffer,
+        &state,
     )
     .await
 }
@@ -122,11 +159,81 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    fn make_app() -> picoserve::Router<AppRouter> {
-        picoserve::Router::new().route("/", get(|| async move { "Hello World" }))
+    // Initialize temperature sensor
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    let sda = io.pins.gpio10;
+    let scl = io.pins.gpio8;
+    let i2c = mk_static!(
+        I2c<'static, I2C0, Blocking>,
+        i2c::I2c::new(peripherals.I2C0, sda, scl, 100.kHz())
+    );
+    let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>, shtc3(i2c));
+
+    sht.start_measurement(PowerMode::NormalMode).unwrap();
+
+    let sensor = mk_static!(
+            Mutex<
+                CriticalSectionRawMutex,
+                &'static mut
+                ShtCx<
+                    Sht2Gen,&'static mut
+                    I2c<
+                        'static,
+                        I2C0,
+                        Blocking
+                    >
+                >
+            >,
+        Mutex::<CriticalSectionRawMutex, &'static mut ShtCx<Sht2Gen,&'static mut I2c<'static, I2C0, Blocking>>>::new(sht)
+    );
+
+    let shared_control = SharedControl(sensor);
+
+    fn make_app() -> picoserve::Router<AppRouter, AppState> {
+        picoserve::Router::new()
+            .route("/.well-known/wot", get(|| async move { "Hello World" }))
+            .route(
+                "/temperature",
+                get(
+                    |State(SharedControl(control)): State<SharedControl>| async move {
+                        let temperature = control.lock().await.get_temperature_measurement_result();
+
+                        if let Ok(temperature) = temperature {
+                            let body = format!("{}", temperature.as_degrees_celsius());
+
+                            return Response::ok(body);
+                        }
+
+                        Response::new(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to read temperature value.".into(),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/humidity",
+                get(
+                    |State(SharedControl(control)): State<SharedControl>| async move {
+                        let humidity = control.lock().await.get_humidity_measurement_result();
+
+                        if let Ok(humidity) = humidity {
+                            let body = format!("{}", humidity.as_percent());
+
+                            return Response::ok(body);
+                        }
+
+                        Response::new(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to read humidity value.".into(),
+                        )
+                    },
+                ),
+            )
     }
 
-    let app = mk_static!(picoserve::Router<AppRouter>, make_app());
+    let app = mk_static!(picoserve::Router<AppRouter, AppState>, make_app());
 
     let config = mk_static!(
         picoserve::Config::<Duration>,
@@ -139,7 +246,13 @@ async fn main(spawner: Spawner) {
     );
 
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(id, stack, app, config));
+        spawner.must_spawn(web_task(
+            id,
+            stack,
+            app,
+            config,
+            AppState { shared_control },
+        ));
     }
 }
 
