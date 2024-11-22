@@ -45,9 +45,7 @@ smoltcp_012 = { version = "0.12.0", default-features = false, features = [
     "socket-tcp",
     "socket-udp",
 ], package = "smoltcp" }
-embassy-executor = { version = "0.6.0",  features = [
-    "task-arena-size-12288",
-] }
+embassy-executor = { version = "0.6.0",  features = ["nightly"] }
 embassy-time     = { version = "0.3.1",  features = ["generic-queue-8"] }
 esp-hal-embassy  = { version = "0.5.0",  features = ["esp32c3"] }
 static_cell      = { version = "2.1.0",  features = ["nightly"] }
@@ -61,6 +59,9 @@ smart-leds-trait = { version = "0.3.0", features = ["serde"] }
 smart-leds = { version = "0.4.0", features = ["serde"] }
 serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
 portable-atomic = { version = "1.10.0", default-features = false }
+edge-nal = "0.4.0"
+edge-nal-embassy = "0.4.0"
+edge-mdns = "0.4.0"
 
 
 [features]
