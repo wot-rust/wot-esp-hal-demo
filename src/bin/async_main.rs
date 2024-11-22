@@ -12,8 +12,7 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    gpio::Io,
-    i2c::{self, I2c},
+    i2c::master::{AnyI2c, Config, I2c},
     peripherals::I2C0,
     prelude::*,
     rng::Rng,
@@ -27,7 +26,7 @@ use esp_wifi::{
         ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
         WifiState,
     },
-    EspWifiInitFor,
+    EspWifiController,
 };
 use picoserve::{
     extract::State,
@@ -41,7 +40,7 @@ use wot_td::{builder::*, Thing};
 struct AppState {
     sensor: &'static Mutex<
         CriticalSectionRawMutex,
-        &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>,
+        &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking, AnyI2c>>,
     >,
     td: &'static str,
 }
@@ -101,13 +100,15 @@ async fn main(spawner: Spawner) {
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
-    let init = init(
-        EspWifiInitFor::Wifi,
-        timg0.timer0,
-        Rng::new(peripherals.RNG),
-        peripherals.RADIO_CLK,
-    )
-    .unwrap();
+    let init = &*mk_static!(
+        EspWifiController<'static>,
+        init(
+            timg0.timer0,
+            Rng::new(peripherals.RNG),
+            peripherals.RADIO_CLK,
+        )
+        .unwrap()
+    );
 
     let wifi = peripherals.WIFI;
     let (wifi_interface, controller) =
@@ -154,15 +155,24 @@ async fn main(spawner: Spawner) {
     }
 
     // Initialize temperature sensor
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let sda = io.pins.gpio10;
-    let scl = io.pins.gpio8;
+    let sda = peripherals.GPIO10;
+    let scl = peripherals.GPIO8;
+
     let i2c = mk_static!(
-        I2c<'static, I2C0, Blocking>,
-        i2c::I2c::new(peripherals.I2C0, sda, scl, 100.kHz())
+        I2c<'static, Blocking, AnyI2c>,
+        I2c::new(
+            peripherals.I2C0,
+            Config {
+                frequency: 100.kHz(),
+                ..Default::default()
+            }
+        )
+        .with_sda(sda)
+        .with_scl(scl)
     );
-    let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, I2C0, Blocking>>, shtc3(i2c));
+
+    let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking, AnyI2c>>, shtc3(i2c));
 
     let device_id = stack.hardware_address();
 
@@ -211,12 +221,12 @@ async fn main(spawner: Spawner) {
                     Sht2Gen,&'static mut
                     I2c<
                         'static,
-                        I2C0,
-                        Blocking
+                        Blocking,
+                        AnyI2c,
                     >
                 >
             >,
-        Mutex::<CriticalSectionRawMutex, &'static mut ShtCx<Sht2Gen,&'static mut I2c<'static, I2C0, Blocking>>>::new(sht)
+        Mutex::<CriticalSectionRawMutex, _>::new(sht)
     );
 
     let app_state = mk_static!(
@@ -293,9 +303,9 @@ async fn main(spawner: Spawner) {
 #[embassy_executor::task]
 async fn connection(mut controller: WifiController<'static>) {
     println!("start connection task");
-    println!("Device capabilities: {:?}", controller.get_capabilities());
+    println!("Device capabilities: {:?}", controller.capabilities());
     loop {
-        if esp_wifi::wifi::get_wifi_state() == WifiState::StaConnected {
+        if esp_wifi::wifi::wifi_state() == WifiState::StaConnected {
             // wait until we're no longer connected
             controller.wait_for_event(WifiEvent::StaDisconnected).await;
             Timer::after(Duration::from_millis(5000)).await
@@ -308,12 +318,12 @@ async fn connection(mut controller: WifiController<'static>) {
             });
             controller.set_configuration(&client_config).unwrap();
             println!("Starting wifi");
-            controller.start().await.unwrap();
+            controller.start_async().await.unwrap();
             println!("Wifi started!");
         }
         println!("About to connect...");
 
-        match controller.connect().await {
+        match controller.connect_async().await {
             Ok(_) => println!("Wifi connected!"),
             Err(e) => {
                 println!("Failed to connect to wifi: {e:?}");
