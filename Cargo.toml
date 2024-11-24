@@ -46,6 +46,7 @@ picoserve = { version = "0.12.2", features = ["embassy", "alloc"] }
 embassy-sync = "0.6.0"
 wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
 serde_json = { version = "1.0.133", default-features = false, features = ["alloc"] }
+uuid = { version = "1.11.0", default-features = false }
 
 [profile.dev]
 # Rust debug is too slow.
