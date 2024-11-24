@@ -4,7 +4,11 @@
 
 extern crate alloc;
 
-use alloc::{format, string::String};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
+use const_random::const_random;
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
@@ -33,6 +37,7 @@ use picoserve::{
     routing::get,
 };
 use shtcx::{self, sensor_class::Sht2Gen, shtc3, PowerMode, ShtCx};
+use uuid::Builder;
 use wot_td::{builder::*, Thing};
 
 #[derive(Clone, Copy)]
@@ -47,6 +52,8 @@ struct AppState {
 type AppRouter = impl picoserve::routing::PathRouter<AppState>;
 
 const WEB_TASK_POOL_SIZE: usize = 1;
+
+const UUID_SEED: [u8; 16] = const_random!([u8; 16]);
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(
@@ -85,6 +92,12 @@ macro_rules! mk_static {
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+
+fn generate_uuid_urn() -> alloc::string::String {
+    let uuid = Builder::from_random_bytes(UUID_SEED).into_uuid();
+
+    uuid.urn().to_string()
+}
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -173,11 +186,16 @@ async fn main(spawner: Spawner) {
 
     let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking, AnyI2c>>, shtc3(i2c));
 
-    let device_id = stack.hardware_address();
+    let id = if cfg!(feature = "uuid-id") {
+        generate_uuid_urn()
+    } else {
+        let device_id = stack.hardware_address().to_string();
+        format!("urn:example/shtc3/{device_id}")
+    };
 
     let td = Thing::builder("shtc3")
         .finish_extend()
-        .id(format!("urn:example/shtc3/{device_id}"))
+        .id(id)
         .base(base_uri)
         .description("Example Thing exposing a shtc3 sensor")
         .security(|builder| builder.no_sec().required().with_key("nosec_sc"))
