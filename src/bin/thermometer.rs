@@ -11,7 +11,7 @@ use alloc::{
 use const_random::const_random;
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, watch::Watch};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -33,7 +33,7 @@ use esp_wifi::{
 };
 use picoserve::{
     extract::State,
-    response::{Response, StatusCode},
+    response::{self, Response, StatusCode},
     routing::get,
 };
 use shtcx::{self, sensor_class::Sht2Gen, shtc3, PowerMode, ShtCx};
@@ -104,6 +104,21 @@ async fn web_task(
     .await
 }
 
+#[embassy_executor::task]
+async fn temperature_write_task(state: &'static AppState) -> ! {
+    let sender = WATCH.sender();
+
+    loop {
+        Timer::after(Duration::from_secs(15)).await;
+
+        let temperature = state.get_temperature().await;
+
+        if let Ok(temperature) = temperature {
+            sender.send(temperature);
+        }
+    }
+}
+
 // https://github.com/embassy-rs/static-cell/issues/16
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
@@ -119,6 +134,33 @@ fn generate_uuid_urn() -> alloc::string::String {
     let uuid = Builder::from_random_bytes(UUID_SEED).into_uuid();
 
     uuid.urn().to_string()
+}
+
+static WATCH: Watch<CriticalSectionRawMutex, f32, 2> = Watch::new();
+
+struct Events<'a>(embassy_sync::watch::Receiver<'a, CriticalSectionRawMutex, f32, 2>);
+
+impl<'a> response::sse::EventSource for Events<'a> {
+    async fn write_events<W: picoserve::io::Write>(
+        mut self,
+        mut writer: response::sse::EventWriter<W>,
+    ) -> Result<(), W::Error> {
+        loop {
+            match embassy_time::with_timeout(
+                embassy_time::Duration::from_secs(15),
+                self.0.changed(),
+            )
+            .await
+            {
+                Ok(value) => {
+                    writer
+                        .write_event("value_changed", value.to_string().as_str())
+                        .await?
+                }
+                Err(_) => writer.write_keepalive().await?,
+            }
+        }
+    }
 }
 
 #[esp_hal_embassy::main]
@@ -245,6 +287,16 @@ async fn main(spawner: Spawner) {
                 .number()
                 .read_only()
         })
+        .event("temperatureChanged", |b| {
+            b.data(|b| b.finish_extend().number().unit("degree celsius"))
+                .form(|form_builder| {
+                    form_builder
+                        .href("/events/temperatureChanged")
+                        .op(wot_td::thing::FormOperation::SubscribeEvent)
+                        .op(wot_td::thing::FormOperation::UnsubscribeEvent)
+                        .subprotocol("sse")
+                })
+        })
         .build()
         .unwrap();
 
@@ -320,6 +372,10 @@ async fn main(spawner: Spawner) {
                     .with_header("Content-Type", "text/plain")
                 }),
             )
+            .route(
+                "/events/temperatureChanged",
+                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+            )
     }
 
     let app = mk_static!(picoserve::Router<AppRouter, AppState>, make_app());
@@ -337,6 +393,8 @@ async fn main(spawner: Spawner) {
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, app, config, app_state));
     }
+
+    spawner.spawn(temperature_write_task(app_state)).ok();
 }
 
 #[embassy_executor::task]
