@@ -258,7 +258,9 @@ async fn main(spawner: Spawner) {
         picoserve::Router::new()
             .route(
                 "/.well-known/wot",
-                get(|State(state): State<AppState>| async move { state.td }),
+                get(|State(state): State<AppState>| async move {
+                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
+                }),
             )
             .route(
                 "/properties/temperature",
@@ -272,13 +274,14 @@ async fn main(spawner: Spawner) {
                     if let Ok(temperature) = temperature {
                         let body = format!("{}", temperature.as_degrees_celsius());
 
-                        return Response::ok(body);
+                        return Response::ok(body).with_header("Content-Type", "application/json");
                     }
 
                     Response::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "Failed to read temperature value.".into(),
                     )
+                    .with_header("Content-Type", "text/plain")
                 }),
             )
             .route(
@@ -289,13 +292,14 @@ async fn main(spawner: Spawner) {
                     if let Ok(humidity) = humidity {
                         let body = format!("{}", humidity.as_percent());
 
-                        return Response::ok(body);
+                        return Response::ok(body).with_header("Content-Type", "application/json");
                     }
 
                     Response::new(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "Failed to read humidity value.".into(),
                     )
+                    .with_header("Content-Type", "text/plain")
                 }),
             )
     }
