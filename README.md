@@ -4,10 +4,10 @@
 [![LICENSES][license badge apache]][license apache]
 [![LICENSES][license badge mit]][license mit]
 
-Demo Hygro-Thermometer based on the [esp-rust-board](https://github.com/esp-rs/esp-rust-board).
+## Demo Hygro-Thermometer based on the [esp-rust-board](https://github.com/esp-rs/esp-rust-board).
 
-- [ ] http version based on `esp-hal`
-
+- [x] http version based on `esp-hal` and `picoserve`
+- [ ] mDNS support based on `edge-mdns`
 
 # Deploy
 
