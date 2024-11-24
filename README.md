@@ -4,24 +4,32 @@
 [![LICENSES][license badge apache]][license apache]
 [![LICENSES][license badge mit]][license mit]
 
-## Demo Hygro-Thermometer based on the [esp-rust-board](https://github.com/esp-rs/esp-rust-board).
+## Deploy
 
-- [x] http version based on `esp-hal` and `picoserve`
-- [ ] mDNS support based on `edge-mdns`
-
-# Deploy
-
-## Rust prerequisites
+### Rust prerequisites
 - Install `espflash`, `ldproxy` and `cargo-espflash`
 ```
 $ cargo install espflash ldproxy cargo-espflash
 ```
 
-## Building and running
+### Building and running
 - Make sure to connect the board and that its serial/jtag gets detected by your system.
-- Populate the `cfg.toml` with the wifi credentials.
+- set `SSID` and `PASSWORD` env variables.
 
 If the toolchain is correctly installed the usual `cargo build` and `cargo run` will work.
+
+## Demos
+All the demos target the [esp-rust-board](https://github.com/esp-rs/esp-rust-board).
+
+### Demo Hygro-Thermometer
+This demo exposes the [shtc3](https://www.sensirion.com/shtc3/) sensor as a connected thermometer.
+
+- [x] http version based on `esp-hal` and `picoserve`
+- [ ] mDNS support based on `edge-mdns`
+
+```
+$ cargo run --bin thermometer
+```
 
 <!-- Links -->
 [license apache]: LICENSES/Apache-2.0.txt
