@@ -44,6 +44,28 @@ struct AppState {
     td: &'static str,
 }
 
+impl AppState {
+    /// Returns the latest temperature measurement in degrees celsius.
+    async fn get_temperature(&self) -> Result<f32, shtcx::Error<esp_hal::i2c::master::Error>> {
+        Ok(self
+            .sensor
+            .lock()
+            .await
+            .get_temperature_measurement_result()?
+            .as_degrees_celsius())
+    }
+
+    /// Returns the latest humidity measurement in percent.
+    async fn get_humidity(&self) -> Result<f32, shtcx::Error<esp_hal::i2c::master::Error>> {
+        Ok(self
+            .sensor
+            .lock()
+            .await
+            .get_humidity_measurement_result()?
+            .as_percent())
+    }
+}
+
 type AppRouter = impl picoserve::routing::PathRouter<AppState>;
 
 const WEB_TASK_POOL_SIZE: usize = 1;
@@ -245,14 +267,10 @@ async fn main(spawner: Spawner) {
             .route(
                 "/properties/temperature",
                 get(|State(state): State<AppState>| async move {
-                    let temperature = state
-                        .sensor
-                        .lock()
-                        .await
-                        .get_temperature_measurement_result();
+                    let temperature = state.get_temperature().await;
 
                     if let Ok(temperature) = temperature {
-                        let body = format!("{}", temperature.as_degrees_celsius());
+                        let body = format!("{}", temperature);
 
                         return Response::ok(body);
                     }
@@ -266,10 +284,10 @@ async fn main(spawner: Spawner) {
             .route(
                 "/properties/humidity",
                 get(|State(state): State<AppState>| async move {
-                    let humidity = state.sensor.lock().await.get_humidity_measurement_result();
+                    let humidity = state.get_humidity().await;
 
                     if let Ok(humidity) = humidity {
-                        let body = format!("{}", humidity.as_percent());
+                        let body = format!("{}", humidity);
 
                         return Response::ok(body);
                     }
