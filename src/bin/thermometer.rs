@@ -52,12 +52,13 @@ struct AppState {
 impl AppState {
     /// Returns the latest temperature measurement in degrees celsius.
     async fn get_temperature(&self) -> Result<f32, shtcx::Error<esp_hal::i2c::master::Error>> {
-        Ok(self
+        let t = self
             .sensor
             .lock()
             .await
             .get_temperature_measurement_result()?
-            .as_degrees_celsius())
+            .as_degrees_celsius();
+        Ok(t)
     }
 
     /// Returns the latest humidity measurement in percent.
@@ -107,14 +108,23 @@ async fn web_task(
 #[embassy_executor::task]
 async fn temperature_write_task(state: &'static AppState) -> ! {
     let sender = WATCH.sender();
+    let t = state.get_temperature().await.unwrap_or(-500.0);
 
     loop {
-        Timer::after(Duration::from_secs(15)).await;
+        state
+            .sensor
+            .lock()
+            .await
+            .start_measurement(PowerMode::NormalMode)
+            .unwrap();
 
+        Timer::after(Duration::from_secs(1)).await;
         let temperature = state.get_temperature().await;
 
         if let Ok(temperature) = temperature {
-            sender.send(temperature);
+            if ((t - temperature) * 100f32) as u32 / 10 != 0 {
+                sender.send(temperature);
+            }
         }
     }
 }
@@ -301,8 +311,6 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     let td = serde_json::to_string(&td).unwrap();
-
-    sht.start_measurement(PowerMode::NormalMode).unwrap();
 
     let sensor = mk_static!(
             Mutex<
