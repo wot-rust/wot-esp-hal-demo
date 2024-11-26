@@ -21,7 +21,7 @@ If the toolchain is correctly installed the usual `cargo build` and `cargo run` 
 ## Demos
 All the demos target the [esp-rust-board](https://github.com/esp-rs/esp-rust-board).
 
-### Demo Hygro-Thermometer
+### Hygro-Thermometer
 This demo exposes the [shtc3](https://www.sensirion.com/shtc3/) sensor as a connected thermometer.
 
 - [x] http version based on `esp-hal` and `picoserve`
@@ -29,6 +29,16 @@ This demo exposes the [shtc3](https://www.sensirion.com/shtc3/) sensor as a conn
 
 ```
 $ cargo run --bin thermometer
+```
+
+### Light Source
+This demo exposes the **WS2812 LED** as a light source.
+
+- [x] http version based on `esp-hal` and `picoserve`
+- [ ] mDNS support based on `edge-mdns`
+
+```
+$ cargo run --bin light
 ```
 
 <!-- Links -->
