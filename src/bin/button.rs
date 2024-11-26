@@ -187,17 +187,17 @@ async fn main(spawner: Spawner) {
 
     let id = get_urn_or_uuid(stack);
 
-    let td = Thing::builder("shtc3")
+    let td = Thing::builder("button")
         .finish_extend()
         .id(id)
         .base(base_uri)
-        .description("Example Thing exposing a shtc3 sensor")
+        .description("Example Thing exposing a toggle button")
         .security(|builder| builder.no_sec().required().with_key("nosec_sc"))
         .property("on", |p| {
             p.finish_extend_data_schema()
-                .attype("TemperatureProperty")
-                .title("Temperature")
-                .description("Current temperature")
+                .attype("OnOffProperty")
+                .title("On/Off")
+                .description("On if the property is true, off otherwise")
                 .form(|f| {
                     f.href("/properties/on")
                         .op(wot_td::thing::FormOperation::ReadProperty)

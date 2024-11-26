@@ -168,7 +168,7 @@ async fn main(spawner: Spawner) {
 
     let id = get_urn_or_uuid(stack);
 
-    let td = Thing::builder("shtc3")
+    let td = Thing::builder("light")
         .finish_extend()
         .id(id)
         .base(base_uri)
