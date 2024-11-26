@@ -26,11 +26,10 @@ use esp_wifi::{
 };
 use picoserve::{
     extract::State,
-    response::{IntoResponse, Response, StatusCode},
+    response::{Response, StatusCode},
     routing::get,
 };
 
-use serde::Serialize;
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
 use wot_esp_hal_demo::{smartled::SmartLedsAdapter, *};
 use wot_td::{builder::*, Thing};
@@ -268,11 +267,6 @@ async fn main(spawner: Spawner) {
             td: mk_static!(String, td),
         }
     );
-
-    fn to_json_response<T: Serialize>(data: &T) -> impl IntoResponse {
-        let body = serde_json::to_string(data).unwrap();
-        Response::ok(body).with_header("Content-Type", "application/json")
-    }
 
     fn make_app() -> picoserve::Router<AppRouter, AppState> {
         picoserve::Router::new()

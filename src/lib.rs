@@ -13,6 +13,7 @@ use esp_wifi::wifi::{
     ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
     WifiState,
 };
+use picoserve::response::{IntoResponse, Response};
 
 pub mod smartled;
 
@@ -40,6 +41,11 @@ pub fn get_urn_or_uuid<T: Driver>(stack: &Stack<T>) -> String {
         let device_id = stack.hardware_address().to_string();
         format!("urn:example/shtc3/{device_id}")
     }
+}
+
+pub fn to_json_response<T: serde::Serialize>(data: &T) -> impl IntoResponse {
+    let body = serde_json::to_string(data).unwrap();
+    Response::ok(body).with_header("Content-Type", "application/json")
 }
 
 #[embassy_executor::task]
