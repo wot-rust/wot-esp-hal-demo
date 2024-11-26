@@ -21,10 +21,7 @@ use esp_hal::{
 use esp_println::println;
 use esp_wifi::{
     init,
-    wifi::{
-        ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
-        WifiState,
-    },
+    wifi::{WifiDevice, WifiStaDevice},
     EspWifiController,
 };
 use picoserve::{
@@ -35,7 +32,7 @@ use picoserve::{
 
 use serde::Serialize;
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
-use wot_esp_hal_demo::{smartLedBuffer, smartled::SmartLedsAdapter};
+use wot_esp_hal_demo::{smartled::SmartLedsAdapter, *};
 use wot_td::{builder::*, Thing};
 
 struct Light {
@@ -102,17 +99,6 @@ async fn web_task(
     )
     .await
 }
-
-// https://github.com/embassy-rs/static-cell/issues/16
-macro_rules! mk_static {
-    ($t:ty,$val:expr) => {{
-        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        STATIC_CELL.init_with(|| $val)
-    }};
-}
-
-const SSID: &str = env!("SSID");
-const PASSWORD: &str = env!("PASSWORD");
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -181,11 +167,11 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    let device_id = stack.hardware_address();
+    let id = get_urn_or_uuid(stack);
 
     let td = Thing::builder("shtc3")
         .finish_extend()
-        .id(format!("urn:example/light/{device_id}"))
+        .id(id)
         .base(base_uri)
         .description("Example Thing controlling a light source")
         .security(|builder| builder.no_sec().required().with_key("nosec_sc"))
@@ -349,42 +335,4 @@ async fn main(spawner: Spawner) {
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, app, config, app_state));
     }
-}
-
-#[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
-    println!("start connection task");
-    println!("Device capabilities: {:?}", controller.capabilities());
-    loop {
-        if esp_wifi::wifi::wifi_state() == WifiState::StaConnected {
-            // wait until we're no longer connected
-            controller.wait_for_event(WifiEvent::StaDisconnected).await;
-            Timer::after(Duration::from_millis(5000)).await
-        }
-        if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = Configuration::Client(ClientConfiguration {
-                ssid: SSID.try_into().unwrap(),
-                password: PASSWORD.try_into().unwrap(),
-                ..Default::default()
-            });
-            controller.set_configuration(&client_config).unwrap();
-            println!("Starting wifi");
-            controller.start_async().await.unwrap();
-            println!("Wifi started!");
-        }
-        println!("About to connect...");
-
-        match controller.connect_async().await {
-            Ok(_) => println!("Wifi connected!"),
-            Err(e) => {
-                println!("Failed to connect to wifi: {e:?}");
-                Timer::after(Duration::from_millis(5000)).await
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
-    stack.run().await
 }
