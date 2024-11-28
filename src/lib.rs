@@ -6,7 +6,7 @@ use alloc::{
     format,
     string::{String, ToString},
 };
-use embassy_net::{driver::Driver, Stack};
+use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_wifi::wifi::{
@@ -32,7 +32,7 @@ pub const PASSWORD: &str = env!("PASSWORD");
 const UUID_SEED: [u8; 16] = const_random::const_random!([u8; 16]);
 
 /// Produce an urn that can be used as id
-pub fn get_urn_or_uuid<T: Driver>(stack: &Stack<T>) -> String {
+pub fn get_urn_or_uuid(stack: Stack) -> String {
     if cfg!(feature = "uuid-id") {
         let uuid = uuid::Builder::from_random_bytes(UUID_SEED).into_uuid();
 
@@ -82,6 +82,6 @@ pub async fn connection(mut controller: WifiController<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
-    stack.run().await
+pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static, WifiStaDevice>>) {
+    runner.run().await
 }
