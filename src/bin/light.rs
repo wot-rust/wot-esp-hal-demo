@@ -185,7 +185,6 @@ async fn main(spawner: Spawner) {
                         .op(wot_td::thing::FormOperation::WriteProperty)
                 })
                 .bool()
-                .read_only()
         })
         .property("brightness", |p| {
             p.finish_extend_data_schema()
@@ -200,7 +199,6 @@ async fn main(spawner: Spawner) {
                 .integer()
                 .minimum(0)
                 .maximum(255)
-                .read_only()
         })
         .property("color", |p| {
             p.finish_extend_data_schema()
@@ -234,7 +232,6 @@ async fn main(spawner: Spawner) {
                         .minimum(0)
                         .maximum(255)
                 })
-                .read_only()
         })
         .build()
         .unwrap();
