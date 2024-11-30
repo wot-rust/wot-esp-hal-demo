@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;
 
@@ -19,11 +20,7 @@ use esp_hal::{
     Blocking,
 };
 use esp_println::println;
-use esp_wifi::{
-    init,
-    wifi::{WifiDevice, WifiStaDevice},
-    EspWifiController,
-};
+use esp_wifi::{init, wifi::WifiStaDevice, EspWifiController};
 use picoserve::{
     extract::State,
     response::{Response, StatusCode},
@@ -75,7 +72,7 @@ const WEB_TASK_POOL_SIZE: usize = 1;
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(
     id: usize,
-    stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
+    stack: Stack<'static>,
     app: &'static picoserve::Router<AppRouter, AppState>,
     config: &'static picoserve::Config<Duration>,
     state: &'static AppState,
@@ -89,7 +86,7 @@ async fn web_task(
         id,
         app,
         config,
-        stack,
+        &stack,
         port,
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
@@ -135,18 +132,15 @@ async fn main(spawner: Spawner) {
     let seed = 1234; // very random, very secure seed
 
     // Init network stack
-    let stack = &*mk_static!(
-        Stack<WifiDevice<'_, WifiStaDevice>>,
-        Stack::new(
-            wifi_interface,
-            config,
-            mk_static!(StackResources<3>, StackResources::<3>::new()),
-            seed
-        )
+    let (stack, runner) = embassy_net::new(
+        wifi_interface,
+        config,
+        mk_static!(StackResources<3>, StackResources::<3>::new()),
+        seed,
     );
 
     spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(&stack)).ok();
+    spawner.spawn(net_task(runner)).ok();
 
     loop {
         if stack.is_link_up() {
