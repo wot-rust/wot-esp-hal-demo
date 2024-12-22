@@ -265,11 +265,11 @@ async fn main(spawner: Spawner) {
                 .read_only()
                 .unit("%")
         })
-        .event("temperatureChanged", |b| {
-            b.data(|b| b.finish_extend().number().unit("degree celsius"))
+        .event("temperature", |b| {
+            b.data(|b| b.finish_extend().number().unit("Celsius"))
                 .form(|form_builder| {
                     form_builder
-                        .href("/events/temperatureChanged")
+                        .href("/events/temperature")
                         .op(wot_td::thing::FormOperation::SubscribeEvent)
                         .op(wot_td::thing::FormOperation::UnsubscribeEvent)
                         .subprotocol("sse")
@@ -349,7 +349,7 @@ async fn main(spawner: Spawner) {
                 }),
             )
             .route(
-                "/events/temperatureChanged",
+                "/events/temperature",
                 get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
             )
     }
