@@ -250,6 +250,7 @@ async fn main(spawner: Spawner) {
                 })
                 .number()
                 .read_only()
+                .unit("Celsius")
         })
         .property("humidity", |p| {
             p.finish_extend_data_schema()
@@ -262,6 +263,7 @@ async fn main(spawner: Spawner) {
                 })
                 .number()
                 .read_only()
+                .unit("%")
         })
         .event("temperatureChanged", |b| {
             b.data(|b| b.finish_extend().number().unit("degree celsius"))
