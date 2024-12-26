@@ -51,7 +51,7 @@ embassy-executor = { version = "0.6.0",  features = [
 embassy-time     = { version = "0.3.1",  features = ["generic-queue-8"] }
 esp-hal-embassy  = { version = "0.5.0",  features = ["esp32c3"] }
 static_cell      = { version = "2.1.0",  features = ["nightly"] }
-picoserve = { version = "0.13.0", features = ["embassy", "alloc"] }
+picoserve = { version = "0.13.2", features = ["embassy", "alloc"] }
 embassy-sync = "0.6.0"
 wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
 serde_json = { version = "1.0.133", default-features = false, features = ["alloc"] }
