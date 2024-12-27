@@ -62,9 +62,6 @@ smart-leds = { version = "0.4.0", features = ["serde"] }
 serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
 portable-atomic = { version = "1.10.0", default-features = false }
 
-[patch.crates-io]
-# TODO: Remove this override once https://github.com/tkaitchuck/constrandom/issues/36 has been resolved
-const-random-macro = { git = 'https://github.com/tkaitchuck/constrandom.git', rev = "4f71cb510e77eb6a26f8c7296c17811d0416fd41"}
 
 [features]
 default = ["uuid-id"]
