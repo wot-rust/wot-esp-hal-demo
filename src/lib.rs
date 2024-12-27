@@ -29,7 +29,25 @@ macro_rules! mk_static {
 pub const SSID: &str = env!("SSID");
 pub const PASSWORD: &str = env!("PASSWORD");
 
-const UUID_SEED: [u8; 16] = const_random::const_random!([u8; 16]);
+// TODO: Remove this horrible workaround once https://github.com/tkaitchuck/constrandom/issues/36 has been resolved
+const UUID_SEED: [u8; 16] = [
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+    const_random::const_random!(u8),
+];
 
 /// Produce an urn that can be used as id
 pub fn get_urn_or_uuid(stack: Stack) -> String {
