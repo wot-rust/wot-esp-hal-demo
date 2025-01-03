@@ -23,12 +23,12 @@ use esp_println::println;
 use esp_wifi::{init, wifi::WifiStaDevice, EspWifiController};
 use picoserve::{
     extract::State,
-    response::{Response, StatusCode},
+    response::{Redirect, Response, StatusCode},
     routing::get,
 };
 
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
-use wot_esp_hal_demo::{smartled::SmartLedsAdapter, *};
+use wot_esp_hal_demo::{mdns::*, smartled::SmartLedsAdapter, *};
 use wot_td::{builder::*, Thing};
 
 struct Light {
@@ -67,7 +67,9 @@ struct AppState {
 
 type AppRouter = impl picoserve::routing::PathRouter<AppState>;
 
-const WEB_TASK_POOL_SIZE: usize = 1;
+const WEB_TASK_POOL_SIZE: usize = 8;
+// One for each http worker, 2 for mdns, 2 for internal esp-wifi use
+const STACK_POOL: usize = WEB_TASK_POOL_SIZE + MDNS_STACK_SIZE + 2;
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(
@@ -105,18 +107,15 @@ async fn main(spawner: Spawner) {
         config
     });
 
+    let rng = Rng::new(peripherals.RNG);
+
     esp_alloc::heap_allocator!(72 * 1024);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     let init = &*mk_static!(
         EspWifiController<'static>,
-        init(
-            timg0.timer0,
-            Rng::new(peripherals.RNG),
-            peripherals.RADIO_CLK,
-        )
-        .unwrap()
+        init(timg0.timer0, rng, peripherals.RADIO_CLK,).unwrap()
     );
 
     let wifi = peripherals.WIFI;
@@ -135,7 +134,10 @@ async fn main(spawner: Spawner) {
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         config,
-        mk_static!(StackResources<3>, StackResources::<3>::new()),
+        mk_static!(
+            StackResources<STACK_POOL>,
+            StackResources::<STACK_POOL>::new()
+        ),
         seed,
     );
 
@@ -162,7 +164,9 @@ async fn main(spawner: Spawner) {
 
     let id = get_urn_or_uuid(stack);
 
-    let td = Thing::builder("light")
+    let name = "light";
+
+    let td = Thing::builder(name)
         .finish_extend()
         .id(id)
         .base(base_uri)
@@ -262,11 +266,12 @@ async fn main(spawner: Spawner) {
     fn make_app() -> picoserve::Router<AppRouter, AppState> {
         picoserve::Router::new()
             .route(
-                "/.well-known/wot",
+                "/",
                 get(|State(state): State<AppState>| async move {
                     Response::ok(state.td).with_header("Content-Type", "application/json")
                 }),
             )
+            .route("/.well-known/wot", get(|| Redirect::to("/")))
             .route(
                 "/properties/on",
                 get(|State(state): State<AppState>| async move {
@@ -316,6 +321,8 @@ async fn main(spawner: Spawner) {
         })
         .keep_connection_alive()
     );
+
+    spawner.spawn(mdns_task(stack, rng, name)).ok();
 
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, app, config, app_state));
