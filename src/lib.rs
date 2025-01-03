@@ -1,4 +1,6 @@
 #![no_std]
+#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;
 
@@ -15,6 +17,7 @@ use esp_wifi::wifi::{
 };
 use picoserve::response::{IntoResponse, Response};
 
+pub mod mdns;
 pub mod smartled;
 
 // https://github.com/embassy-rs/static-cell/issues/16
