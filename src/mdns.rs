@@ -41,7 +41,7 @@ pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
 
     let mut socket = io::bind(
         &u,
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), PORT),
+        SocketAddr::new(IpAddr::V4(ipv4), PORT),
         Some(stack.config_v4().unwrap().address.address()),
         None,
     )
