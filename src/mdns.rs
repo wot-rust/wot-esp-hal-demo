@@ -86,7 +86,7 @@ pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
     let signal = Signal::new();
 
     let mdns = io::Mdns::<NoopRawMutex, _, _, _, _>::new(
-        Some(Ipv4Addr::UNSPECIFIED),
+        Some(ipv4),
         None,
         recv,
         send,
