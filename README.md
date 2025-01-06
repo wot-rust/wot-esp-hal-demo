@@ -25,7 +25,7 @@ All the demos target the [esp-rust-board](https://github.com/esp-rs/esp-rust-boa
 This demo exposes the [shtc3](https://www.sensirion.com/shtc3/) sensor as a connected thermometer.
 
 - [x] http version based on `esp-hal` and `picoserve`
-- [ ] mDNS support based on `edge-mdns`
+- [x] mDNS support based on `edge-mdns`
 
 ```
 $ cargo run --bin thermometer
@@ -35,7 +35,7 @@ $ cargo run --bin thermometer
 This demo exposes the **WS2812 LED** as a light source.
 
 - [x] http version based on `esp-hal` and `picoserve`
-- [ ] mDNS support based on `edge-mdns`
+- [x] mDNS support based on `edge-mdns`
 
 ```
 $ cargo run --bin light
