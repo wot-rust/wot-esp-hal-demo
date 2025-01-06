@@ -41,6 +41,16 @@ This demo exposes the **WS2812 LED** as a light source.
 $ cargo run --bin light
 ```
 
+### Button
+This demo exposes an integrated button via Server-Sent Events (SSE).
+
+- [x] http version based on `esp-hal` and `picoserve`
+- [x] mDNS support based on `edge-mdns`
+
+```
+$ cargo run --bin button
+```
+
 <!-- Links -->
 [license apache]: LICENSES/Apache-2.0.txt
 [license mit]: LICENSES/MIT.txt
