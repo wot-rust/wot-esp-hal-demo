@@ -18,8 +18,8 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
+    clock::CpuClock,
     gpio::{Input, Pull},
-    prelude::*,
     rng::Rng,
     timer::timg::TimerGroup,
 };
@@ -29,6 +29,7 @@ use picoserve::{
     extract::State,
     response::{self, Redirect, Response},
     routing::get,
+    AppRouter, AppWithStateBuilder,
 };
 use wot_td::{builder::*, Thing};
 
@@ -40,7 +41,34 @@ struct AppState {
     td: &'static str,
 }
 
-type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+struct AppProps;
+
+impl AppWithStateBuilder for AppProps {
+    type State = AppState;
+    type PathRouter = impl picoserve::routing::PathRouter<Self::State>;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
+        picoserve::Router::new()
+            .route(
+                "/",
+                get(|State(state): State<AppState>| async move {
+                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
+                }),
+            )
+            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route(
+                "/properties/on",
+                get(|State(state): State<AppState>| async move {
+                    let on = state.on.load(core::sync::atomic::Ordering::Relaxed);
+                    to_json_response(&on)
+                }),
+            )
+            .route(
+                "/events/on",
+                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+            )
+    }
+}
 
 const WEB_TASK_POOL_SIZE: usize = 8;
 // One for each http worker, 2 for mdns, 2 for internal esp-wifi use
@@ -50,7 +78,7 @@ const STACK_POOL: usize = WEB_TASK_POOL_SIZE + MDNS_STACK_SIZE + 2;
 async fn web_task(
     id: usize,
     stack: Stack<'static>,
-    app: &'static picoserve::Router<AppRouter, AppState>,
+    app: &'static AppRouter<AppProps>,
     config: &'static picoserve::Config<Duration>,
     state: &'static AppState,
 ) -> ! {
@@ -139,8 +167,8 @@ async fn main(spawner: Spawner) {
     let (wifi_interface, controller) =
         esp_wifi::wifi::new_with_mode(&init, wifi, WifiStaDevice).unwrap();
 
-    use esp_hal::timer::systimer::{SystemTimer, Target};
-    let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+    use esp_hal::timer::systimer::SystemTimer;
+    let systimer = SystemTimer::new(peripherals.SYSTIMER);
     esp_hal_embassy::init(systimer.alarm0);
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -227,29 +255,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(update_task(app_state, btn)).ok();
 
-    fn make_app() -> picoserve::Router<AppRouter, AppState> {
-        picoserve::Router::new()
-            .route(
-                "/",
-                get(|State(state): State<AppState>| async move {
-                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
-                }),
-            )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
-            .route(
-                "/properties/on",
-                get(|State(state): State<AppState>| async move {
-                    let on = state.on.load(core::sync::atomic::Ordering::Relaxed);
-                    to_json_response(&on)
-                }),
-            )
-            .route(
-                "/events/on",
-                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
-            )
-    }
-
-    let app = mk_static!(picoserve::Router<AppRouter, AppState>, make_app());
+    let app = mk_static!(AppRouter<AppProps>, AppProps.build_app());
 
     let config = mk_static!(
         picoserve::Config::<Duration>,

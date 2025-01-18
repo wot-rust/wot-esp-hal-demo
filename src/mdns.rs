@@ -1,6 +1,6 @@
 use core::{
     cell::OnceCell,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
 };
 
 use alloc::format;
@@ -19,7 +19,7 @@ use embassy_sync::{
     signal::Signal,
 };
 use esp_hal::rng::Rng;
-use smoltcp_012::wire::MAX_HARDWARE_ADDRESS_LEN;
+use smoltcp::wire::MAX_HARDWARE_ADDRESS_LEN;
 
 static RNG: CriticalSectionMutex<OnceCell<Rng>> = CriticalSectionMutex::new(OnceCell::new());
 
