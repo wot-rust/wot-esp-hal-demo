@@ -17,9 +17,10 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    i2c::master::{AnyI2c, Config, I2c},
-    prelude::*,
+    clock::CpuClock,
+    i2c::master::{Config, I2c},
     rng::Rng,
+    time::RateExtU32,
     timer::timg::TimerGroup,
     Blocking,
 };
@@ -29,6 +30,7 @@ use picoserve::{
     extract::State,
     response::{self, Redirect, Response, StatusCode},
     routing::get,
+    AppRouter, AppWithStateBuilder,
 };
 use shtcx::{self, sensor_class::Sht2Gen, shtc3, PowerMode, ShtCx};
 use wot_td::{builder::*, Thing};
@@ -39,7 +41,7 @@ use wot_esp_hal_demo::{mdns::*, *};
 struct AppState {
     sensor: &'static Mutex<
         CriticalSectionRawMutex,
-        &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking, AnyI2c>>,
+        &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking>>,
     >,
     td: &'static str,
 }
@@ -67,7 +69,63 @@ impl AppState {
     }
 }
 
-type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+struct AppProps;
+
+impl AppWithStateBuilder for AppProps {
+    type State = AppState;
+    type PathRouter = impl picoserve::routing::PathRouter<Self::State>;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
+        picoserve::Router::new()
+            .route(
+                "/",
+                get(|State(state): State<AppState>| async move {
+                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
+                }),
+            )
+            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route(
+                "/properties/temperature",
+                get(|State(state): State<AppState>| async move {
+                    let temperature = state.get_temperature().await;
+
+                    if let Ok(temperature) = temperature {
+                        let body = format!("{}", temperature);
+
+                        return Response::ok(body).with_header("Content-Type", "application/json");
+                    }
+
+                    Response::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to read temperature value.".into(),
+                    )
+                    .with_header("Content-Type", "text/plain")
+                }),
+            )
+            .route(
+                "/properties/humidity",
+                get(|State(state): State<AppState>| async move {
+                    let humidity = state.get_humidity().await;
+
+                    if let Ok(humidity) = humidity {
+                        let body = format!("{}", humidity);
+
+                        return Response::ok(body).with_header("Content-Type", "application/json");
+                    }
+
+                    Response::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to read humidity value.".into(),
+                    )
+                    .with_header("Content-Type", "text/plain")
+                }),
+            )
+            .route(
+                "/events/temperature",
+                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+            )
+    }
+}
 
 const WEB_TASK_POOL_SIZE: usize = 8;
 // One for each http worker, 2 for mdns, 2 for internal esp-wifi use
@@ -77,7 +135,7 @@ const STACK_POOL: usize = WEB_TASK_POOL_SIZE + MDNS_STACK_SIZE + 2;
 async fn web_task(
     id: usize,
     stack: Stack<'static>,
-    app: &'static picoserve::Router<AppRouter, AppState>,
+    app: &'static AppRouter<AppProps>,
     config: &'static picoserve::Config<Duration>,
     state: &'static AppState,
 ) -> ! {
@@ -175,8 +233,8 @@ async fn main(spawner: Spawner) {
     let (wifi_interface, controller) =
         esp_wifi::wifi::new_with_mode(&init, wifi, WifiStaDevice).unwrap();
 
-    use esp_hal::timer::systimer::{SystemTimer, Target};
-    let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+    use esp_hal::timer::systimer::SystemTimer;
+    let systimer = SystemTimer::new(peripherals.SYSTIMER);
     esp_hal_embassy::init(systimer.alarm0);
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -221,19 +279,21 @@ async fn main(spawner: Spawner) {
     let scl = peripherals.GPIO8;
 
     let i2c = mk_static!(
-        I2c<'static, Blocking, AnyI2c>,
+        I2c<'static, Blocking>,
         I2c::new(
             peripherals.I2C0,
-            Config {
-                frequency: 100.kHz(),
-                ..Default::default()
-            }
+            Config::default().with_frequency(100.kHz())
         )
+        .expect("Cannot access the thermometer")
         .with_sda(sda)
         .with_scl(scl)
     );
 
-    let sht = mk_static!(ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking, AnyI2c>>, shtc3(i2c));
+    let sht = mk_static!(
+        ShtCx < Sht2Gen,
+        &'static mut I2c<'static, Blocking>>,
+        shtc3(i2c)
+    );
 
     let id = get_urn_or_uuid(stack);
 
@@ -295,7 +355,6 @@ async fn main(spawner: Spawner) {
                     I2c<
                         'static,
                         Blocking,
-                        AnyI2c,
                     >
                 >
             >,
@@ -310,58 +369,7 @@ async fn main(spawner: Spawner) {
         }
     );
 
-    fn make_app() -> picoserve::Router<AppRouter, AppState> {
-        picoserve::Router::new()
-            .route(
-                "/",
-                get(|State(state): State<AppState>| async move {
-                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
-                }),
-            )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
-            .route(
-                "/properties/temperature",
-                get(|State(state): State<AppState>| async move {
-                    let temperature = state.get_temperature().await;
-
-                    if let Ok(temperature) = temperature {
-                        let body = format!("{}", temperature);
-
-                        return Response::ok(body).with_header("Content-Type", "application/json");
-                    }
-
-                    Response::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Failed to read temperature value.".into(),
-                    )
-                    .with_header("Content-Type", "text/plain")
-                }),
-            )
-            .route(
-                "/properties/humidity",
-                get(|State(state): State<AppState>| async move {
-                    let humidity = state.get_humidity().await;
-
-                    if let Ok(humidity) = humidity {
-                        let body = format!("{}", humidity);
-
-                        return Response::ok(body).with_header("Content-Type", "application/json");
-                    }
-
-                    Response::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Failed to read humidity value.".into(),
-                    )
-                    .with_header("Content-Type", "text/plain")
-                }),
-            )
-            .route(
-                "/events/temperature",
-                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
-            )
-    }
-
-    let app = mk_static!(picoserve::Router<AppRouter, AppState>, make_app());
+    let app = mk_static!(AppRouter<AppProps>, AppProps.build_app());
 
     let config = mk_static!(
         picoserve::Config::<Duration>,

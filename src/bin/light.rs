@@ -13,9 +13,10 @@ use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    prelude::*,
+    clock::CpuClock,
     rmt::{Channel, Rmt},
     rng::Rng,
+    time::RateExtU32,
     timer::timg::TimerGroup,
     Blocking,
 };
@@ -25,6 +26,7 @@ use picoserve::{
     extract::State,
     response::{Redirect, Response, StatusCode},
     routing::get,
+    AppRouter, AppWithStateBuilder,
 };
 
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
@@ -65,7 +67,59 @@ struct AppState {
     td: &'static str,
 }
 
-type AppRouter = impl picoserve::routing::PathRouter<AppState>;
+struct AppProps;
+
+impl AppWithStateBuilder for AppProps {
+    type State = AppState;
+    type PathRouter = impl picoserve::routing::PathRouter<Self::State>;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
+        picoserve::Router::new()
+            .route(
+                "/",
+                get(|State(state): State<AppState>| async move {
+                    Response::ok(state.td).with_header("Content-Type", "application/json")
+                }),
+            )
+            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route(
+                "/properties/on",
+                get(|State(state): State<AppState>| async move {
+                    to_json_response(&state.light.lock().await.on)
+                })
+                .put(
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(on)| async move {
+                        light.lock().await.power(on);
+                        StatusCode::NO_CONTENT
+                    },
+                ),
+            )
+            .route(
+                "/properties/brightness",
+                get(|State(state): State<AppState>| async move {
+                    to_json_response(&state.light.lock().await.brightness)
+                })
+                .put(
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(b)| async move {
+                        light.lock().await.brightness(b);
+                        StatusCode::NO_CONTENT
+                    },
+                ),
+            )
+            .route(
+                "/properties/color",
+                get(|State(state): State<AppState>| async move {
+                    to_json_response(&state.light.lock().await.color)
+                })
+                .put(
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(rgb)| async move {
+                        light.lock().await.rgb(rgb);
+                        StatusCode::NO_CONTENT
+                    },
+                ),
+            )
+    }
+}
 
 const WEB_TASK_POOL_SIZE: usize = 8;
 // One for each http worker, 2 for mdns, 2 for internal esp-wifi use
@@ -75,7 +129,7 @@ const STACK_POOL: usize = WEB_TASK_POOL_SIZE + MDNS_STACK_SIZE + 2;
 async fn web_task(
     id: usize,
     stack: Stack<'static>,
-    app: &'static picoserve::Router<AppRouter, AppState>,
+    app: &'static picoserve::AppRouter<AppProps>,
     config: &'static picoserve::Config<Duration>,
     state: &'static AppState,
 ) -> ! {
@@ -122,8 +176,8 @@ async fn main(spawner: Spawner) {
     let (wifi_interface, controller) =
         esp_wifi::wifi::new_with_mode(&init, wifi, WifiStaDevice).unwrap();
 
-    use esp_hal::timer::systimer::{SystemTimer, Target};
-    let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+    use esp_hal::timer::systimer::SystemTimer;
+    let systimer = SystemTimer::new(peripherals.SYSTIMER);
     esp_hal_embassy::init(systimer.alarm0);
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -263,54 +317,7 @@ async fn main(spawner: Spawner) {
         }
     );
 
-    fn make_app() -> picoserve::Router<AppRouter, AppState> {
-        picoserve::Router::new()
-            .route(
-                "/",
-                get(|State(state): State<AppState>| async move {
-                    Response::ok(state.td).with_header("Content-Type", "application/json")
-                }),
-            )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
-            .route(
-                "/properties/on",
-                get(|State(state): State<AppState>| async move {
-                    to_json_response(&state.light.lock().await.on)
-                })
-                .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(on)| async move {
-                        light.lock().await.power(on);
-                        StatusCode::NO_CONTENT
-                    },
-                ),
-            )
-            .route(
-                "/properties/brightness",
-                get(|State(state): State<AppState>| async move {
-                    to_json_response(&state.light.lock().await.brightness)
-                })
-                .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(b)| async move {
-                        light.lock().await.brightness(b);
-                        StatusCode::NO_CONTENT
-                    },
-                ),
-            )
-            .route(
-                "/properties/color",
-                get(|State(state): State<AppState>| async move {
-                    to_json_response(&state.light.lock().await.color)
-                })
-                .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(rgb)| async move {
-                        light.lock().await.rgb(rgb);
-                        StatusCode::NO_CONTENT
-                    },
-                ),
-            )
-    }
-
-    let app = mk_static!(picoserve::Router<AppRouter, AppState>, make_app());
+    let app = mk_static!(AppRouter<AppProps>, AppProps.build_app());
 
     let config = mk_static!(
         picoserve::Config::<Duration>,
