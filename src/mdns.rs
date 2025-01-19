@@ -27,7 +27,7 @@ pub const MDNS_STACK_SIZE: usize = 2;
 
 #[embassy_executor::task]
 pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
-    RNG.lock(|c| _ = c.set(rng.clone()));
+    RNG.lock(|c| _ = c.set(rng));
 
     let ipv4 = stack.config_v4().unwrap().address.address();
     let (recv_buf, send_buf) = (
@@ -102,5 +102,5 @@ pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
         &host, &service,
     )))
     .await
-    .unwrap()
+    .unwrap();
 }
