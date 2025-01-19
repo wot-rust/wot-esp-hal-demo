@@ -1,8 +1,6 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
-#![feature(never_type)]
-#![feature(impl_trait_in_bindings)]
 
 extern crate alloc;
 
@@ -122,7 +120,7 @@ pub async fn web_task<Props: AppWithStateBuilder>(
     app: &'static AppRouter<Props>,
     config: &'static picoserve::Config<Duration>,
     state: &'static Props::State,
-) -> ! {
+) {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
     let mut tcp_tx_buffer = [0; 1024];
@@ -139,7 +137,7 @@ pub async fn web_task<Props: AppWithStateBuilder>(
         &mut http_buffer,
         state,
     )
-    .await
+    .await;
 }
 
 #[allow(non_snake_case)]
@@ -264,11 +262,38 @@ where
 
         spawner.spawn(mdns::mdns_task(stack, rng, name)).ok();
 
-        let web_tasks: [core::pin::Pin<alloc::boxed::Box<impl core::future::Future<Output = !>>>;
-            8] = core::array::from_fn(|id| {
-            alloc::boxed::Box::pin(web_task::<Props>(id, stack, app, config, app_state))
+        let web_tasks: [_; 8] = core::array::from_fn(|id| {
+            alloc::boxed::Box::pin(<() as WebTask<Props>>::spawn(
+                id, stack, app, config, app_state,
+            ))
         });
 
         embassy_futures::join::join_array(web_tasks).await;
+    }
+}
+
+trait WebTask<Props: picoserve::AppWithStateBuilder> {
+    type Fut: core::future::Future<Output = ()> + 'static;
+
+    fn spawn(
+        id: usize,
+        stack: Stack<'static>,
+        app: &'static AppRouter<Props>,
+        config: &'static picoserve::Config<Duration>,
+        state: &'static Props::State,
+    ) -> Self::Fut;
+}
+
+impl<Props: picoserve::AppWithStateBuilder + 'static> WebTask<Props> for () {
+    type Fut = impl core::future::Future<Output = ()> + 'static;
+
+    fn spawn(
+        id: usize,
+        stack: Stack<'static>,
+        app: &'static AppRouter<Props>,
+        config: &'static picoserve::Config<Duration>,
+        state: &'static Props::State,
+    ) -> Self::Fut {
+        web_task::<Props>(id, stack, app, config, state)
     }
 }
