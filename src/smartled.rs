@@ -88,6 +88,8 @@ where
     TX: TxChannel,
 {
     /// Create a new adapter object that drives the pin using the RMT channel.
+    /// # Panics
+    #[allow(clippy::cast_possible_truncation)]
     pub fn new<C, O>(
         channel: C,
         pin: impl Peripheral<P = O> + 'd,
