@@ -17,7 +17,7 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     i2c::master::{Config, I2c},
-    time::RateExtU32,
+    time::Rate,
     Blocking,
 };
 use picoserve::{
@@ -84,7 +84,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
             I2c<'static, Blocking>,
             I2c::new(
                 peripherals.I2C0,
-                Config::default().with_frequency(100.kHz())
+                Config::default().with_frequency(Rate::from_khz(100))
             )
             .expect("Cannot access the thermometer")
             .with_sda(sda)

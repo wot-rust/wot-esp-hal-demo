@@ -12,8 +12,7 @@ use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_wifi::wifi::{
-    ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
-    WifiState,
+    ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiState,
 };
 use picoserve::{
     response::{IntoResponse, Response},
@@ -109,7 +108,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static, WifiStaDevice>>) {
+pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
     runner.run().await;
 }
 
@@ -171,14 +170,12 @@ where
     async fn run(spawner: embassy_executor::Spawner) {
         esp_println::logger::init_logger_from_env();
         let peripherals = esp_hal::init({
-            let mut config = esp_hal::Config::default();
-            config.cpu_clock = esp_hal::clock::CpuClock::max();
-            config
+            esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max())
         });
 
         let rng = esp_hal::rng::Rng::new(peripherals.RNG);
 
-        esp_alloc::heap_allocator!(144 * 1024);
+        esp_alloc::heap_allocator!(size: 144 * 1024);
 
         let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
 
@@ -188,8 +185,9 @@ where
         );
 
         let wifi = peripherals.WIFI;
-        let (wifi_interface, controller) =
-            esp_wifi::wifi::new_with_mode(init, wifi, WifiStaDevice).unwrap();
+        let (controller, interfaces) = esp_wifi::wifi::new(init, wifi).unwrap();
+
+        let wifi_interface = interfaces.sta;
 
         let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
         esp_hal_embassy::init(systimer.alarm0);
