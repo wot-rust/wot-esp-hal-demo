@@ -12,7 +12,7 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     rmt::{Channel, Rmt},
-    time::RateExtU32,
+    time::Rate,
     Blocking,
 };
 use picoserve::{
@@ -74,7 +74,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
         td: String,
         peripherals: wot_esp_hal_demo::ThingPeripherals,
     ) -> &'static Self {
-        let rmt = Rmt::new(peripherals.RMT, 80.MHz()).unwrap();
+        let rmt = Rmt::new(peripherals.RMT, Rate::from_mhz(80)).unwrap();
 
         let rmt_buffer = smartLedBuffer!(1);
 

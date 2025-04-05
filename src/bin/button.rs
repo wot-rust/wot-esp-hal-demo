@@ -13,7 +13,7 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Watch};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::gpio::{Input, Pull};
+use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_println::println;
 use picoserve::{
     extract::State,
@@ -51,7 +51,10 @@ impl wot_esp_hal_demo::EspThingState for AppState {
             }
         );
 
-        let btn = Input::new(thing_peripherals.GPIO9, Pull::Up);
+        let btn = Input::new(
+            thing_peripherals.GPIO9,
+            InputConfig::default().with_pull(Pull::Up),
+        );
         spawner.spawn(update_task(app_state, btn)).ok();
 
         app_state
