@@ -41,7 +41,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
     fn new(
         spawner: embassy_executor::Spawner,
         td: String,
-        thing_peripherals: wot_esp_hal_demo::ThingPeripherals,
+        thing_peripherals: wot_esp_hal_demo::ThingPeripherals<'static>,
     ) -> &'static Self {
         let app_state = mk_static!(
             AppState,
@@ -112,7 +112,7 @@ impl AppWithStateBuilder for AppProps {
                     Response::ok(state.td).with_header("Content-Type", "application/td+json")
                 }),
             )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route("/.well-known/wot", get(|| async { Redirect::to("/") }))
             .route(
                 "/properties/on",
                 get(|State(state): State<AppState>| async move {
@@ -122,7 +122,7 @@ impl AppWithStateBuilder for AppProps {
             )
             .route(
                 "/events/on",
-                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+                get(async move || response::EventStream(Events(WATCH.receiver().unwrap()))),
             )
     }
 }
@@ -149,7 +149,7 @@ struct Events<'a>(embassy_sync::watch::Receiver<'a, CriticalSectionRawMutex, boo
 impl response::sse::EventSource for Events<'_> {
     async fn write_events<W: picoserve::io::Write>(
         mut self,
-        mut writer: response::sse::EventWriter<W>,
+        mut writer: response::sse::EventWriter<'_, W>,
     ) -> Result<(), W::Error> {
         loop {
             match embassy_time::with_timeout(
@@ -169,7 +169,9 @@ impl response::sse::EventSource for Events<'_> {
     }
 }
 
-#[esp_hal_embassy::main]
+esp_bootloader_esp_idf::esp_app_desc!();
+
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     AppProps::run(spawner).await;
 }

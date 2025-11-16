@@ -11,8 +11,8 @@ use alloc::{
 use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
-use esp_wifi::wifi::{
-    ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiState,
+use esp_radio::wifi::{
+    ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
 };
 use picoserve::{
     response::{IntoResponse, Response},
@@ -20,7 +20,6 @@ use picoserve::{
 };
 
 pub mod mdns;
-pub mod smartled;
 
 // https://github.com/embassy-rs/static-cell/issues/16
 #[macro_export]
@@ -79,24 +78,25 @@ pub async fn connection(mut controller: WifiController<'static>) {
     println!("start connection task");
     println!("Device capabilities: {:?}", controller.capabilities());
     loop {
-        if esp_wifi::wifi::wifi_state() == WifiState::StaConnected {
+        if esp_radio::wifi::sta_state() == WifiStaState::Connected {
             // wait until we're no longer connected
             controller.wait_for_event(WifiEvent::StaDisconnected).await;
             Timer::after(Duration::from_millis(5000)).await;
         }
         if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = Configuration::Client(ClientConfiguration {
-                ssid: SSID.try_into().unwrap(),
-                password: PASSWORD.try_into().unwrap(),
-                ..Default::default()
-            });
-            controller.set_configuration(&client_config).unwrap();
+            let client_config = ModeConfig::Client(
+                ClientConfig::default()
+                    .with_ssid(SSID.into())
+                    .with_password(PASSWORD.into()),
+            );
+            controller.set_config(&client_config).unwrap();
+
             println!("Starting wifi");
             controller.start_async().await.unwrap();
             println!("Wifi started!");
         }
-        println!("About to connect...");
 
+        println!("About to connect...");
         match controller.connect_async().await {
             Ok(()) => println!("Wifi connected!"),
             Err(e) => {
@@ -114,7 +114,7 @@ pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
 
 #[allow(clippy::similar_names)]
 pub async fn web_task<Props: AppWithStateBuilder>(
-    id: usize,
+    task_id: usize,
     stack: Stack<'static>,
     app: &'static AppRouter<Props>,
     config: &'static picoserve::Config<Duration>,
@@ -125,35 +125,26 @@ pub async fn web_task<Props: AppWithStateBuilder>(
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve_with_state(
-        id,
-        app,
-        config,
-        stack,
-        port,
-        &mut tcp_rx_buffer,
-        &mut tcp_tx_buffer,
-        &mut http_buffer,
-        state,
-    )
-    .await;
+    picoserve::Server::new(&app.shared().with_state(state), config, &mut http_buffer)
+        .listen_and_serve(task_id, stack, port, &mut tcp_rx_buffer, &mut tcp_tx_buffer)
+        .await;
 }
 
 #[allow(non_snake_case)]
-pub struct ThingPeripherals {
-    pub I2C0: esp_hal::peripherals::I2C0,
-    pub GPIO2: esp_hal::gpio::GpioPin<2>,
-    pub GPIO8: esp_hal::gpio::GpioPin<8>,
-    pub GPIO9: esp_hal::gpio::GpioPin<9>,
-    pub GPIO10: esp_hal::gpio::GpioPin<10>,
-    pub RMT: esp_hal::peripherals::RMT,
+pub struct ThingPeripherals<'a> {
+    pub I2C0: esp_hal::peripherals::I2C0<'a>,
+    pub GPIO2: esp_hal::peripherals::GPIO2<'a>,
+    pub GPIO8: esp_hal::peripherals::GPIO8<'a>,
+    pub GPIO9: esp_hal::peripherals::GPIO9<'a>,
+    pub GPIO10: esp_hal::peripherals::GPIO10<'a>,
+    pub RMT: esp_hal::peripherals::RMT<'a>,
 }
 
 pub trait EspThingState {
     fn new(
         spawner: embassy_executor::Spawner,
         td: String,
-        thing_peripherals: ThingPeripherals,
+        thing_peripherals: ThingPeripherals<'static>,
     ) -> &'static Self;
 }
 
@@ -169,32 +160,32 @@ where
     #[allow(async_fn_in_trait, clippy::must_use_candidate)]
     async fn run(spawner: embassy_executor::Spawner) {
         esp_println::logger::init_logger_from_env();
-        let peripherals = esp_hal::init({
-            esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max())
-        });
-
-        let rng = esp_hal::rng::Rng::new(peripherals.RNG);
+        let peripherals = esp_hal::init(
+            esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()),
+        );
 
         esp_alloc::heap_allocator!(size: 144 * 1024);
 
         let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
+        let sw_int =
+            esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+        esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-        let init = &*mk_static!(
-            esp_wifi::EspWifiController<'static>,
-            esp_wifi::init(timg0.timer0, rng, peripherals.RADIO_CLK,).unwrap()
-        );
+        let esp_radio_ctrl =
+            &*mk_static!(esp_radio::Controller<'static>, esp_radio::init().unwrap());
 
-        let wifi = peripherals.WIFI;
-        let (controller, interfaces) = esp_wifi::wifi::new(init, wifi).unwrap();
+        let (controller, interfaces) =
+            esp_radio::wifi::new(esp_radio_ctrl, peripherals.WIFI, Default::default()).unwrap();
 
         let wifi_interface = interfaces.sta;
 
-        let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
-        esp_hal_embassy::init(systimer.alarm0);
+        let config = embassy_net::Config::dhcpv4(Default::default());
 
-        let config = embassy_net::Config::dhcpv4(embassy_net::DhcpConfig::default());
+        let rng = esp_hal::rng::Rng::new();
+        let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
-        let seed = 1234; // very random, very secure seed
+        let mac_address = wifi_interface.mac_address();
+        println!("Device MAC address: {mac_address:02x?}");
 
         // Init network stack
         let (stack, runner) = embassy_net::new(
@@ -252,6 +243,7 @@ where
             picoserve::Config::<Duration>,
             picoserve::Config::new(picoserve::Timeouts {
                 start_read_request: Some(Duration::from_secs(5)),
+                persistent_start_read_request: Some(Duration::from_secs(1)),
                 read_request: Some(Duration::from_secs(1)),
                 write: Some(Duration::from_secs(1)),
             })
@@ -260,7 +252,7 @@ where
 
         spawner.spawn(mdns::mdns_task(stack, rng, name)).ok();
 
-        let web_tasks: [_; 8] = core::array::from_fn(|id| {
+        let web_tasks: [_; 4] = core::array::from_fn(|id| {
             alloc::boxed::Box::pin(<() as WebTask<Props>>::spawn(
                 id, stack, app, config, app_state,
             ))
