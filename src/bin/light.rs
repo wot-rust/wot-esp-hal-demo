@@ -10,11 +10,7 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{
-    rmt::{Channel, Rmt},
-    time::Rate,
-    Blocking,
-};
+use esp_hal::rmt::Rmt;
 use picoserve::{
     extract::State,
     response::{Redirect, Response, StatusCode},
@@ -23,9 +19,7 @@ use picoserve::{
 };
 
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
-use wot_esp_hal_demo::{
-    mk_static, smartLedBuffer, smartled::SmartLedsAdapter, to_json_response, EspThing as _,
-};
+use wot_esp_hal_demo::{mk_static, to_json_response, EspThing as _};
 use wot_td::{
     builder::{
         BuildableHumanReadableInfo, BuildableInteractionAffordance, IntegerDataSchemaBuilderLike,
@@ -34,28 +28,31 @@ use wot_td::{
     Thing,
 };
 
-struct Light {
+struct Light<'a> {
     on: bool,
     color: RGB8,
     brightness: u8,
-    led: SmartLedsAdapter<Channel<Blocking, 0>, 25>,
+    led: esp_hal_smartled::SmartLedsAdapter<'a, 25>,
 }
 
-impl Light {
+impl Light<'_> {
     fn update(&mut self) {
         let b = if self.on { self.brightness } else { 0 };
         let c = gamma([self.color].into_iter());
 
         self.led.write(brightness(c, b)).unwrap();
     }
+
     pub fn power(&mut self, on: bool) {
         self.on = on;
         self.update();
     }
+
     pub fn brightness(&mut self, b: u8) {
         self.brightness = b;
         self.update();
     }
+
     pub fn rgb(&mut self, rgb: RGB8) {
         self.color = rgb;
         self.update();
@@ -64,7 +61,7 @@ impl Light {
 
 #[derive(Clone, Copy)]
 struct AppState {
-    light: &'static Mutex<CriticalSectionRawMutex, &'static mut Light>,
+    light: &'static Mutex<CriticalSectionRawMutex, &'static mut Light<'static>>,
     td: &'static str,
 }
 
@@ -72,11 +69,13 @@ impl wot_esp_hal_demo::EspThingState for AppState {
     fn new(
         _spawner: embassy_executor::Spawner,
         td: String,
-        peripherals: wot_esp_hal_demo::ThingPeripherals,
+        peripherals: wot_esp_hal_demo::ThingPeripherals<'static>,
     ) -> &'static Self {
-        let rmt = Rmt::new(peripherals.RMT, Rate::from_mhz(80)).unwrap();
+        let rmt = Rmt::new(peripherals.RMT, esp_hal::time::Rate::from_mhz(80)).unwrap();
 
-        let rmt_buffer = smartLedBuffer!(1);
+        let rmt_buffer = alloc::boxed::Box::leak(alloc::boxed::Box::new(
+            esp_hal_smartled::smart_led_buffer!(1),
+        ));
 
         let light = mk_static!(
             Light,
@@ -84,7 +83,11 @@ impl wot_esp_hal_demo::EspThingState for AppState {
                 on: false,
                 brightness: 100,
                 color: WHITE,
-                led: SmartLedsAdapter::new(rmt.channel0, peripherals.GPIO2, rmt_buffer)
+                led: esp_hal_smartled::SmartLedsAdapter::new(
+                    rmt.channel0,
+                    peripherals.GPIO2,
+                    rmt_buffer
+                )
             }
         );
 
@@ -194,14 +197,14 @@ impl AppWithStateBuilder for AppProps {
                     Response::ok(state.td).with_header("Content-Type", "application/json")
                 }),
             )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route("/.well-known/wot", get(async || Redirect::to("/")))
             .route(
                 "/properties/on",
                 get(|State(state): State<AppState>| async move {
                     to_json_response(&state.light.lock().await.on)
                 })
                 .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(on)| async move {
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_>(on)| async move {
                         light.lock().await.power(on);
                         StatusCode::NO_CONTENT
                     },
@@ -213,7 +216,7 @@ impl AppWithStateBuilder for AppProps {
                     to_json_response(&state.light.lock().await.brightness)
                 })
                 .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(b)| async move {
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_>(b)| async move {
                         light.lock().await.brightness(b);
                         StatusCode::NO_CONTENT
                     },
@@ -225,7 +228,7 @@ impl AppWithStateBuilder for AppProps {
                     to_json_response(&state.light.lock().await.color)
                 })
                 .put(
-                    |State(AppState { light, .. }), picoserve::extract::Json::<_, 0>(rgb)| async move {
+                    |State(AppState { light, .. }), picoserve::extract::Json::<_>(rgb)| async move {
                         light.lock().await.rgb(rgb);
                         StatusCode::NO_CONTENT
                     },
@@ -234,7 +237,9 @@ impl AppWithStateBuilder for AppProps {
     }
 }
 
-#[esp_hal_embassy::main]
+esp_bootloader_esp_idf::esp_app_desc!();
+
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     AppProps::run(spawner).await;
 }

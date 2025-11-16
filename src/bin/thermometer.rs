@@ -17,7 +17,6 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     i2c::master::{Config, I2c},
-    time::Rate,
     Blocking,
 };
 use picoserve::{
@@ -73,7 +72,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
     fn new(
         spawner: embassy_executor::Spawner,
         td: String,
-        peripherals: wot_esp_hal_demo::ThingPeripherals,
+        peripherals: wot_esp_hal_demo::ThingPeripherals<'static>,
     ) -> &'static Self {
         // Initialize temperature sensor
 
@@ -84,7 +83,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
             I2c<'static, Blocking>,
             I2c::new(
                 peripherals.I2C0,
-                Config::default().with_frequency(Rate::from_khz(100))
+                Config::default().with_frequency(esp_hal::time::Rate::from_khz(100))
             )
             .expect("Cannot access the thermometer")
             .with_sda(sda)
@@ -188,14 +187,14 @@ impl AppWithStateBuilder for AppProps {
         picoserve::Router::new()
             .route(
                 "/",
-                get(|State(state): State<AppState>| async move {
+                get(async |State(state): State<AppState>| {
                     Response::ok(state.td).with_header("Content-Type", "application/td+json")
                 }),
             )
-            .route("/.well-known/wot", get(|| Redirect::to("/")))
+            .route("/.well-known/wot", get(async || Redirect::to("/")))
             .route(
                 "/properties/temperature",
-                get(|State(state): State<AppState>| async move {
+                get(async move |State(state): State<AppState>| {
                     let temperature = state.get_temperature().await;
 
                     if let Ok(temperature) = temperature {
@@ -213,7 +212,7 @@ impl AppWithStateBuilder for AppProps {
             )
             .route(
                 "/properties/humidity",
-                get(|State(state): State<AppState>| async move {
+                get(async move |State(state): State<AppState>| {
                     let humidity = state.get_humidity().await;
 
                     if let Ok(humidity) = humidity {
@@ -231,7 +230,7 @@ impl AppWithStateBuilder for AppProps {
             )
             .route(
                 "/events/temperature",
-                get(move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+                get(async move || response::EventStream(Events(WATCH.receiver().unwrap()))),
             )
     }
 }
@@ -268,7 +267,7 @@ struct Events<'a>(embassy_sync::watch::Receiver<'a, CriticalSectionRawMutex, f32
 impl response::sse::EventSource for Events<'_> {
     async fn write_events<W: picoserve::io::Write>(
         mut self,
-        mut writer: response::sse::EventWriter<W>,
+        mut writer: response::sse::EventWriter<'_, W>,
     ) -> Result<(), W::Error> {
         loop {
             match embassy_time::with_timeout(
@@ -288,7 +287,9 @@ impl response::sse::EventSource for Events<'_> {
     }
 }
 
-#[esp_hal_embassy::main]
+esp_bootloader_esp_idf::esp_app_desc!();
+
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     AppProps::run(spawner).await;
 }
