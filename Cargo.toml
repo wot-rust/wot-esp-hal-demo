@@ -20,7 +20,7 @@ esp-rtos  = { version = "0.2.0",  features = ["esp32c3", "esp-radio", "embassy",
 
 log = { version = "0.4.21" }
 
-embedded-io = "0.6.1"
+embedded-io = "0.7.1"
 shtcx = "1.0.0"
 
 embedded-io-async = "0.6.1"
