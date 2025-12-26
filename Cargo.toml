@@ -53,7 +53,7 @@ esp-hal-smartled = { version = "0.17", features = ["esp32c3"] }
 serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
 portable-atomic = { version = "1.10.0", default-features = false }
 edge-nal = "0.5"
-edge-nal-embassy = "0.6"
+edge-nal-embassy = "0.7"
 edge-mdns = "0.6"
 fugit = "0.3.9"
 
