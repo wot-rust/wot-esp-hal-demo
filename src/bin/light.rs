@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
+#![recursion_limit = "1024"]
 #![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;

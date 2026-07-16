@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
+#![recursion_limit = "1024"]
 #![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;
@@ -17,6 +17,7 @@ use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     i2c::master::{Config, I2c},
+    tsens::{Config as TsensConfig, TemperatureSensor},
     Blocking,
 };
 use picoserve::{
@@ -42,6 +43,7 @@ struct AppState {
         CriticalSectionRawMutex,
         &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking>>,
     >,
+    die_sensor: &'static TemperatureSensor<'static>,
     td: &'static str,
 }
 
@@ -65,6 +67,11 @@ impl AppState {
             .await
             .get_humidity_measurement_result()?
             .as_percent())
+    }
+
+    /// Returns the ESP32-C3 internal die temperature in degrees celsius.
+    fn get_die_temperature(&self) -> f32 {
+        self.die_sensor.get_temperature().to_celsius()
     }
 }
 
@@ -111,15 +118,22 @@ impl wot_esp_hal_demo::EspThingState for AppState {
             Mutex::<CriticalSectionRawMutex, _>::new(sht)
         );
 
+        let die_sensor = mk_static!(
+            TemperatureSensor<'static>,
+            TemperatureSensor::new(peripherals.TSENS, TsensConfig::default())
+                .expect("Cannot access the internal temperature sensor")
+        );
+
         let app_state = mk_static!(
             AppState,
             AppState {
                 sensor,
+                die_sensor,
                 td: mk_static!(String, td),
             }
         );
 
-        spawner.spawn(temperature_write_task(app_state)).ok();
+        spawner.spawn(temperature_write_task(app_state).expect("temperature_write_task"));
 
         app_state
     }
@@ -163,6 +177,19 @@ impl wot_esp_hal_demo::EspThing<AppProps> for AppProps {
                     .number()
                     .read_only()
                     .unit("%")
+            })
+            .property("die_temperature", |p| {
+                p.finish_extend_data_schema()
+                    .attype("TemperatureProperty")
+                    .title("Die temperature")
+                    .description("ESP32-C3 internal die temperature")
+                    .form(|f| {
+                        f.href("/properties/die_temperature")
+                            .op(wot_td::thing::FormOperation::ReadProperty)
+                    })
+                    .number()
+                    .read_only()
+                    .unit("Celsius")
             })
             .event("temperature", |b| {
                 b.data(|b| b.finish_extend().number().unit("Celsius"))
@@ -226,6 +253,15 @@ impl AppWithStateBuilder for AppProps {
                         "Failed to read humidity value.".into(),
                     )
                     .with_header("Content-Type", "text/plain")
+                }),
+            )
+            .route(
+                "/properties/die_temperature",
+                get(async move |State(state): State<AppState>| {
+                    let die_temperature = state.get_die_temperature();
+                    let body = format!("{die_temperature}");
+
+                    Response::ok(body).with_header("Content-Type", "application/json")
                 }),
             )
             .route(

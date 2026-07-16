@@ -1,7 +1,32 @@
 fn main() {
+    load_env();
     linker_be_nice();
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
+    println!("cargo:rerun-if-changed=.env");
+}
+
+/// Load SSID/PASSWORD from a gitignored local `.env` if present, exposing them to
+/// the crate via `cargo:rustc-env`. Real environment variables take precedence.
+fn load_env() {
+    let Ok(src) = std::fs::read_to_string(".env") else {
+        return;
+    };
+    for line in src.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"');
+        // Only set if not already present in the real environment.
+        if std::env::var_os(key).is_none() {
+            println!("cargo:rustc-env={key}={value}");
+        }
+    }
 }
 
 fn linker_be_nice() {

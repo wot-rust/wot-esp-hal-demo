@@ -6,17 +6,17 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-esp-backtrace = { version = "0.18", features = [
+esp-backtrace = { version = "0.19", features = [
     "esp32c3",
     "panic-handler",
     "println",
-]}
+] }
 
-esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32c3", "log-04"] }
-esp-hal = { version = "1", features = ["esp32c3", "unstable"] }
-esp-println = { version = "0.16", features = ["esp32c3", "log-04"] }
-esp-alloc = { version = "0.9" }
-esp-rtos  = { version = "0.2.0",  features = ["esp32c3", "esp-radio", "embassy", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c3", "log-04"] }
+esp-hal = { version = "1.1", features = ["esp32c3", "unstable"] }
+esp-println = { version = "0.17", features = ["esp32c3", "log-04"] }
+esp-alloc = { version = "0.10" }
+esp-rtos  = { version = "0.3.0",  features = ["esp32c3", "esp-radio", "embassy", "log-04"] }
 
 log = { version = "0.4.21" }
 
@@ -24,9 +24,9 @@ embedded-io = "0.7.1"
 shtcx = "1.0.0"
 
 embedded-io-async = "0.7.0"
-embassy-net = { version = "0.7", features = [ "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.9", features = [ "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 
-esp-radio = { version = "0.17", default-features = false, features = ["esp32c3", "wifi", "esp-alloc"] }
+esp-radio = { version = "0.18", default-features = false, features = ["esp32c3", "wifi", "esp-alloc", "unstable"] }
 heapless = { version = "0.9.0", default-features = false }
 smoltcp = { version = "0.12.0", default-features = false, features = [
     "proto-dhcpv4",
@@ -37,12 +37,12 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
     "socket-tcp",
     "socket-udp",
 ] }
-embassy-executor = { version = "0.9",  features = ["nightly"] }
+embassy-executor = { version = "0.10",  features = ["nightly"] }
 embassy-time     = { version = "0.5.0",  features = ["generic-queue-8"] }
 embassy-futures = "0.1.2"
-embassy-sync = "0.7.2"
+embassy-sync = "0.8"
 static_cell      = { version = "2.1.0",  features = ["nightly"] }
-picoserve = { version = "0.17", features = ["embassy", "alloc", "json"] }
+picoserve = { version = "0.18", features = ["embassy", "alloc", "json"] }
 wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
 serde_json = { version = "1.0.133", default-features = false, features = ["alloc"] }
 uuid = { version = "1.11.0", default-features = false }
@@ -52,13 +52,13 @@ smart-leds = { version = "0.4.0", features = ["serde"] }
 esp-hal-smartled = { version = "0.17", features = ["esp32c3"] }
 serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
 portable-atomic = { version = "1.10.0", default-features = false }
-edge-nal = "0.5"
-edge-nal-embassy = "0.7"
-edge-mdns = "0.6"
+edge-nal = "0.7"
+edge-nal-embassy = "0.9"
+edge-mdns = "0.8"
 fugit = "0.3.9"
 
 [patch.crates-io]
-esp-hal-smartled = { git = "https://github.com/esp-rs/esp-hal-community", branch = "main" }
+esp-hal-smartled = { git = "https://github.com/wot-rust/esp-hal-community", branch = "smartled-esp-hal-1.1" }
 
 [features]
 default = ["uuid-id"]

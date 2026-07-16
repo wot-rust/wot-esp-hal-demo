@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(type_alias_impl_trait)]
+#![recursion_limit = "1024"]
 #![feature(impl_trait_in_assoc_type)]
 
 extern crate alloc;
@@ -12,7 +12,7 @@ use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_radio::wifi::{
-    ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
+    sta::StationConfig, Config, ControllerConfig, PowerSaveMode, WifiController, Interface,
 };
 use picoserve::{
     response::{IntoResponse, Response},
@@ -76,29 +76,16 @@ pub fn to_json_response<T: serde::Serialize>(data: &T) -> impl IntoResponse {
 #[embassy_executor::task]
 pub async fn connection(mut controller: WifiController<'static>) {
     println!("start connection task");
-    println!("Device capabilities: {:?}", controller.capabilities());
     loop {
-        if esp_radio::wifi::sta_state() == WifiStaState::Connected {
+        if controller.is_connected() {
             // wait until we're no longer connected
-            controller.wait_for_event(WifiEvent::StaDisconnected).await;
+            controller.wait_for_disconnect_async().await.ok();
             Timer::after(Duration::from_millis(5000)).await;
-        }
-        if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = ModeConfig::Client(
-                ClientConfig::default()
-                    .with_ssid(SSID.into())
-                    .with_password(PASSWORD.into()),
-            );
-            controller.set_config(&client_config).unwrap();
-
-            println!("Starting wifi");
-            controller.start_async().await.unwrap();
-            println!("Wifi started!");
         }
 
         println!("About to connect...");
         match controller.connect_async().await {
-            Ok(()) => println!("Wifi connected!"),
+            Ok(_) => println!("Wifi connected!"),
             Err(e) => {
                 println!("Failed to connect to wifi: {e:?}");
                 Timer::after(Duration::from_millis(5000)).await;
@@ -108,7 +95,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
+pub async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
     runner.run().await;
 }
 
@@ -117,7 +104,7 @@ pub async fn web_task<Props: AppWithStateBuilder>(
     task_id: usize,
     stack: Stack<'static>,
     app: &'static AppRouter<Props>,
-    config: &'static picoserve::Config<Duration>,
+    config: &'static picoserve::Config,
     state: &'static Props::State,
 ) {
     let port = 80;
@@ -138,6 +125,7 @@ pub struct ThingPeripherals<'a> {
     pub GPIO9: esp_hal::peripherals::GPIO9<'a>,
     pub GPIO10: esp_hal::peripherals::GPIO10<'a>,
     pub RMT: esp_hal::peripherals::RMT<'a>,
+    pub TSENS: esp_hal::peripherals::TSENS<'a>,
 }
 
 pub trait EspThingState {
@@ -164,20 +152,28 @@ where
             esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()),
         );
 
-        esp_alloc::heap_allocator!(size: 144 * 1024);
+        esp_alloc::heap_allocator!(size: 200 * 1024);
 
         let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
         let sw_int =
             esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
         esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-        let esp_radio_ctrl =
-            &*mk_static!(esp_radio::Controller<'static>, esp_radio::init().unwrap());
+        let (mut controller, interfaces) =
+            esp_radio::wifi::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
 
-        let (controller, interfaces) =
-            esp_radio::wifi::new(esp_radio_ctrl, peripherals.WIFI, Default::default()).unwrap();
+        // Power-save was previously set via ControllerConfig; in 0.18 it must be
+        // applied explicitly, otherwise the radio runs at full power (hot + thirsty).
+        controller.set_power_saving(PowerSaveMode::Maximum).unwrap();
 
-        let wifi_interface = interfaces.sta;
+        let station_config = Config::Station(
+            StationConfig::default()
+                .with_ssid(SSID)
+                .with_password(PASSWORD.into()),
+        );
+        controller.set_config(&station_config).unwrap();
+
+        let wifi_interface = interfaces.station;
 
         let config = embassy_net::Config::dhcpv4(Default::default());
 
@@ -191,14 +187,12 @@ where
         let (stack, runner) = embassy_net::new(
             wifi_interface,
             config,
-            alloc::boxed::Box::leak(alloc::boxed::Box::new(embassy_net::StackResources::<
-                { 8 * mdns::MDNS_STACK_SIZE + 2 },
-            >::new())),
+            mk_static!(embassy_net::StackResources<{ 8 * mdns::MDNS_STACK_SIZE + 2 }>, embassy_net::StackResources::new()),
             seed,
         );
 
-        spawner.spawn(connection(controller)).ok();
-        spawner.spawn(net_task(runner)).ok();
+        spawner.spawn(connection(controller).expect("connection"));
+        spawner.spawn(net_task(runner).expect("net_task"));
 
         loop {
             if stack.is_link_up() {
@@ -233,6 +227,7 @@ where
             GPIO9: peripherals.GPIO9,
             GPIO10: peripherals.GPIO10,
             RMT: peripherals.RMT,
+            TSENS: peripherals.TSENS,
         };
 
         let app_state = Props::State::new(spawner, td, thing_peripherals);
@@ -240,17 +235,17 @@ where
         let app = alloc::boxed::Box::leak(alloc::boxed::Box::new(Props::default().build_app()));
 
         let config = mk_static!(
-            picoserve::Config::<Duration>,
+            picoserve::Config,
             picoserve::Config::new(picoserve::Timeouts {
-                start_read_request: Some(Duration::from_secs(5)),
-                persistent_start_read_request: Some(Duration::from_secs(1)),
-                read_request: Some(Duration::from_secs(1)),
-                write: Some(Duration::from_secs(1)),
+                start_read_request: Duration::from_secs(5),
+                persistent_start_read_request: Duration::from_secs(1),
+                read_request: Duration::from_secs(1),
+                write: Duration::from_secs(1),
             })
             .keep_connection_alive()
         );
 
-        spawner.spawn(mdns::mdns_task(stack, rng, name)).ok();
+        spawner.spawn(mdns::mdns_task(stack, rng, name).expect("mdns"));
 
         let web_tasks: [_; 4] = core::array::from_fn(|id| {
             alloc::boxed::Box::pin(<() as WebTask<Props>>::spawn(
@@ -269,7 +264,7 @@ trait WebTask<Props: picoserve::AppWithStateBuilder> {
         id: usize,
         stack: Stack<'static>,
         app: &'static AppRouter<Props>,
-        config: &'static picoserve::Config<Duration>,
+        config: &'static picoserve::Config,
         state: &'static Props::State,
     ) -> Self::Fut;
 }
@@ -281,7 +276,7 @@ impl<Props: picoserve::AppWithStateBuilder + 'static> WebTask<Props> for () {
         id: usize,
         stack: Stack<'static>,
         app: &'static AppRouter<Props>,
-        config: &'static picoserve::Config<Duration>,
+        config: &'static picoserve::Config,
         state: &'static Props::State,
     ) -> Self::Fut {
         web_task::<Props>(id, stack, app, config, state)

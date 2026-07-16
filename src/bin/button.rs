@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
+#![recursion_limit = "1024"]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(impl_trait_in_bindings)]
-#![feature(never_type)]
 
 extern crate alloc;
 
@@ -55,7 +55,7 @@ impl wot_esp_hal_demo::EspThingState for AppState {
             thing_peripherals.GPIO9,
             InputConfig::default().with_pull(Pull::Up),
         );
-        spawner.spawn(update_task(app_state, btn)).ok();
+        spawner.spawn(update_task(app_state, btn).expect("update_task"));
 
         app_state
     }

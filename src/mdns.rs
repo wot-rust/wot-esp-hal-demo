@@ -1,7 +1,4 @@
-use core::{
-    cell::OnceCell,
-    net::{IpAddr, Ipv6Addr, SocketAddr},
-};
+use core::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use alloc::format;
 use edge_mdns::{
@@ -15,20 +12,16 @@ use edge_nal::UdpSplit;
 use edge_nal_embassy::{Udp, UdpBuffers};
 use embassy_net::Stack;
 use embassy_sync::{
-    blocking_mutex::{raw::NoopRawMutex, CriticalSectionMutex},
+    blocking_mutex::raw::NoopRawMutex,
     signal::Signal,
 };
 use esp_hal::rng::Rng;
 use smoltcp::wire::MAX_HARDWARE_ADDRESS_LEN;
 
-static RNG: CriticalSectionMutex<OnceCell<Rng>> = CriticalSectionMutex::new(OnceCell::new());
-
 pub const MDNS_STACK_SIZE: usize = 2;
 
 #[embassy_executor::task]
 pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
-    RNG.lock(|c| _ = c.set(rng));
-
     let ipv4 = stack.config_v4().unwrap().address.address();
     let (recv_buf, send_buf) = (
         VecBufAccess::<NoopRawMutex, 1500>::new(),
@@ -83,18 +76,16 @@ pub async fn mdns_task(stack: Stack<'static>, rng: Rng, name: &'static str) {
         ],
     };
 
-    let signal = Signal::new();
+    let signal: Signal<NoopRawMutex, ()> = Signal::new();
 
-    let mdns = io::Mdns::<NoopRawMutex, _, _, _, _>::new(
+    let mdns = io::Mdns::new(
         Some(ipv4),
         None,
         recv,
         send,
         recv_buf,
         send_buf,
-        |buf| {
-            RNG.lock(|c| c.get().map(|r| r.clone().read(buf)));
-        },
+        rng,
         &signal,
     );
 
