@@ -1,0 +1,36 @@
+
+[package]
+name = "demo-c6"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fan"
+path = "src/main.rs"
+
+[dependencies]
+wot-esp-thing = { workspace = true }
+
+esp-backtrace = { workspace = true, features = ["esp32c6", "panic-handler", "println"] }
+esp-bootloader-esp-idf = { workspace = true, features = ["esp32c6", "log-04"] }
+esp-hal = { workspace = true, features = ["esp32c6", "unstable"] }
+esp-println = { workspace = true, features = ["esp32c6", "log-04"] }
+esp-alloc = { workspace = true }
+esp-rtos = { workspace = true, features = ["esp32c6", "esp-radio", "embassy", "log-04"] }
+esp-radio = { workspace = true, features = ["esp32c6"] }
+
+embassy-executor = { workspace = true }
+embassy-sync = { workspace = true }
+embassy-time = { workspace = true }
+picoserve = { workspace = true }
+wot-td = { workspace = true }
+sht4x-rjw = { version = "0.2", default-features = false, features = ["async"] }
+
+serde_json = { workspace = true }
+static_cell = { workspace = true }
+portable-atomic = { workspace = true }
+
+[features]
+default = ["wot-esp-thing/uuid-id"]

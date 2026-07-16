@@ -1,37 +1,6 @@
 fn main() {
-    load_env();
     linker_be_nice();
-    // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
-    println!("cargo:rerun-if-changed=../../.env");
-}
-
-/// Load SSID/PASSWORD from the workspace-root `.env` if present.
-fn load_env() {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let env_path = std::path::Path::new(&manifest)
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join(".env");
-    let Ok(src) = std::fs::read_to_string(&env_path) else {
-        return;
-    };
-    for line in src.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let key = key.trim();
-        let value = value.trim().trim_matches('"');
-        if std::env::var_os(key).is_none() {
-            println!("cargo:rustc-env={key}={value}");
-        }
-    }
 }
 
 fn linker_be_nice() {

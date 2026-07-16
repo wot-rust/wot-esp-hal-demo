@@ -235,9 +235,9 @@ where
         let (mut controller, interfaces) =
             esp_radio::wifi::new(net_peripherals.wifi, ControllerConfig::default()).unwrap();
 
-        // Power-save was previously set via ControllerConfig; in 0.18 it must be
-        // applied explicitly, otherwise the radio runs at full power (hot + thirsty).
-        controller.set_power_saving(PowerSaveMode::Maximum).unwrap();
+        // PowerSaveMode::Maximum breaks WiFi on the ESP32-C6 (known issue,
+        // esp-rs/esp-hal#3014, #3075, #3079). Use None for reliable connectivity.
+        controller.set_power_saving(PowerSaveMode::None).unwrap();
 
         let station_config = Config::Station(
             StationConfig::default()

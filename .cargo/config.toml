@@ -1,3 +1,6 @@
+[alias]
+xtask = "run --package xtask --"
+
 [target.riscv32imc-unknown-none-elf]
 runner = "espflash flash --monitor"
 
@@ -6,11 +9,10 @@ runner = "espflash flash --monitor"
 
 [env]
 ESP_LOG="INFO"
+# Disabling PHY USB passthrough improves WiFi reliability on ESP32-C6
+ESP_RADIO_CONFIG_PHY_ENABLE_USB="false"
 
 [build]
 rustflags = [
   "-C", "force-frame-pointers",
 ]
-
-[unstable]
-build-std = ["alloc", "core"]

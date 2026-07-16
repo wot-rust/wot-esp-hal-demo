@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "lib",
-    "bins/demo-c3",
+    "demo-c3",
+    "demo-c6",
+    "xtask",
 ]
 
 [workspace.package]
