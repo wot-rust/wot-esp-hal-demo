@@ -8,7 +8,7 @@ extern crate alloc;
 
 use portable_atomic::AtomicBool;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch::Watch};
 use esp_alloc as _;
@@ -17,7 +17,7 @@ use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_println::println;
 use picoserve::{
     extract::State,
-    response::{self, Redirect, Response},
+    response::{self},
     routing::get,
     AppWithStateBuilder,
 };
@@ -29,42 +29,59 @@ use wot_td::{
     Thing,
 };
 
-use wot_esp_hal_demo::{mk_static, to_json_response, EspThing as _};
-
+use wot_esp_thing::{mk_static, td_routes, to_json_response, EspThing as _, SseEvents, TdState};
 #[derive(Clone, Copy)]
 struct AppState {
     on: &'static AtomicBool,
-    td: &'static str,
+    td: &'static embassy_sync::blocking_mutex::CriticalSectionMutex<core::cell::Cell<&'static str>>,
 }
 
-impl wot_esp_hal_demo::EspThingState for AppState {
+impl TdState for AppState {
+    fn td(&self) -> &'static str {
+        self.td.lock(|c| c.get())
+    }
+}
+
+impl wot_esp_thing::EspThingState for AppState {
     fn new(
         spawner: embassy_executor::Spawner,
-        td: String,
-        thing_peripherals: wot_esp_hal_demo::ThingPeripherals<'static>,
-    ) -> &'static Self {
+        peripherals: esp_hal::peripherals::Peripherals,
+    ) -> (&'static Self, wot_esp_thing::NetworkPeripherals<'static>) {
+        let net = wot_esp_thing::NetworkPeripherals {
+            timg0: peripherals.TIMG0,
+            sw_interrupt: peripherals.SW_INTERRUPT,
+            wifi: peripherals.WIFI,
+        };
+
         let app_state = mk_static!(
             AppState,
             AppState {
                 on: mk_static!(AtomicBool, AtomicBool::new(false)),
-                td: mk_static!(String, td),
+                td: mk_static!(
+                    embassy_sync::blocking_mutex::CriticalSectionMutex<core::cell::Cell<&'static str>>,
+                    embassy_sync::blocking_mutex::CriticalSectionMutex::new(core::cell::Cell::new(""))
+                ),
             }
         );
 
         let btn = Input::new(
-            thing_peripherals.GPIO9,
+            peripherals.GPIO9,
             InputConfig::default().with_pull(Pull::Up),
         );
         spawner.spawn(update_task(app_state, btn).expect("update_task"));
 
-        app_state
+        (app_state, net)
+    }
+
+    fn set_td(&self, td: &'static str) {
+        self.td.lock(|c| c.set(td));
     }
 }
 
 #[derive(Default)]
 struct AppProps;
 
-impl wot_esp_hal_demo::EspThing<AppProps> for AppProps {
+impl wot_esp_thing::EspThing<AppProps> for AppProps {
     const NAME: &'static str = "button";
 
     fn build_td(name: &str, base_uri: String, id: String) -> Thing {
@@ -105,14 +122,7 @@ impl AppWithStateBuilder for AppProps {
     type PathRouter = impl picoserve::routing::PathRouter<Self::State>;
 
     fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
-        picoserve::Router::new()
-            .route(
-                "/",
-                get(|State(state): State<AppState>| async move {
-                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
-                }),
-            )
-            .route("/.well-known/wot", get(|| async { Redirect::to("/") }))
+        td_routes::<AppState>()
             .route(
                 "/properties/on",
                 get(|State(state): State<AppState>| async move {
@@ -122,7 +132,7 @@ impl AppWithStateBuilder for AppProps {
             )
             .route(
                 "/events/on",
-                get(async move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+                get(async move || response::EventStream(SseEvents(WATCH.receiver().unwrap()))),
             )
     }
 }
@@ -141,31 +151,6 @@ async fn update_task(state: &'static AppState, mut btn: Input<'static>) -> ! {
 
         sender.send(on);
         btn.wait_for_high().await;
-    }
-}
-
-struct Events<'a>(embassy_sync::watch::Receiver<'a, CriticalSectionRawMutex, bool, 2>);
-
-impl response::sse::EventSource for Events<'_> {
-    async fn write_events<W: picoserve::io::Write>(
-        mut self,
-        mut writer: response::sse::EventWriter<'_, W>,
-    ) -> Result<(), W::Error> {
-        loop {
-            match embassy_time::with_timeout(
-                embassy_time::Duration::from_secs(15),
-                self.0.changed(),
-            )
-            .await
-            {
-                Ok(value) => {
-                    writer
-                        .write_event("value_changed", value.to_string().as_str())
-                        .await?;
-                }
-                Err(_) => writer.write_keepalive().await?,
-            }
-        }
     }
 }
 

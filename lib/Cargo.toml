@@ -1,0 +1,39 @@
+[package]
+name = "wot-esp-thing"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["uuid-id"]
+uuid-id = []
+
+[dependencies]
+esp-hal = { workspace = true, features = ["unstable"] }
+esp-radio = { workspace = true, features = ["wifi", "esp-alloc", "unstable"] }
+esp-rtos = { workspace = true, features = ["esp-radio", "embassy", "log-04"] }
+esp-alloc = { workspace = true }
+esp-println = { workspace = true, features = ["log-04"] }
+
+embassy-net = { workspace = true }
+embassy-executor = { workspace = true }
+embassy-time = { workspace = true }
+embassy-futures = { workspace = true }
+embassy-sync = { workspace = true }
+
+edge-nal = { workspace = true }
+edge-nal-embassy = { workspace = true }
+edge-mdns = { workspace = true }
+picoserve = { workspace = true }
+wot-td = { workspace = true }
+smoltcp = { workspace = true }
+
+log = { workspace = true }
+heapless = { workspace = true }
+static_cell = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+const-random = { workspace = true }
+embedded-io-async = { workspace = true }

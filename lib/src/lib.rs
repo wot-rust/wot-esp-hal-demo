@@ -15,7 +15,9 @@ use esp_radio::wifi::{
     sta::StationConfig, Config, ControllerConfig, PowerSaveMode, WifiController, Interface,
 };
 use picoserve::{
+    extract::State,
     response::{IntoResponse, Response},
+    routing::get,
     AppRouter, AppWithStateBuilder,
 };
 
@@ -117,23 +119,90 @@ pub async fn web_task<Props: AppWithStateBuilder>(
         .await;
 }
 
-#[allow(non_snake_case)]
-pub struct ThingPeripherals<'a> {
-    pub I2C0: esp_hal::peripherals::I2C0<'a>,
-    pub GPIO2: esp_hal::peripherals::GPIO2<'a>,
-    pub GPIO8: esp_hal::peripherals::GPIO8<'a>,
-    pub GPIO9: esp_hal::peripherals::GPIO9<'a>,
-    pub GPIO10: esp_hal::peripherals::GPIO10<'a>,
-    pub RMT: esp_hal::peripherals::RMT<'a>,
-    pub TSENS: esp_hal::peripherals::TSENS<'a>,
+/// A trait for application states that carry a serialized Thing Description.
+pub trait TdState {
+    /// The serialized Thing Description (JSON), served at `/`.
+    fn td(&self) -> &'static str;
+}
+
+/// Build the initial router with the standard WoT routes: the Thing Description
+/// at `/` (and `/` via `/.well-known/wot` redirect).
+///
+/// Call this instead of `picoserve::Router::new()` at the start of `build_app`.
+pub fn td_routes<S: TdState + Clone + Copy>() -> picoserve::Router<
+    impl picoserve::routing::PathRouter<S>,
+    S,
+> {
+    picoserve::Router::new()
+        .route(
+            "/",
+            get(|State(state): State<S>| async move {
+                picoserve::response::Response::ok(state.td())
+                    .with_header("Content-Type", "application/td+json")
+            }),
+        )
+        .route(
+            "/.well-known/wot",
+            get(|| async { picoserve::response::Redirect::to("/") }),
+        )
+}
+
+///
+/// Polls the watch with a 15s timeout, emitting `value_changed` events (or a
+/// keepalive on timeout). Generic over the value type `T`.
+pub struct SseEvents<'a, T: Clone + Send + 'static>(
+    pub embassy_sync::watch::Receiver<'a, embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, T, 2>,
+);
+
+impl<T> picoserve::response::sse::EventSource for SseEvents<'_, T>
+where
+    T: Clone + Send + core::fmt::Display + 'static,
+{
+    async fn write_events<W: picoserve::io::Write>(
+        mut self,
+        mut writer: picoserve::response::sse::EventWriter<'_, W>,
+    ) -> Result<(), W::Error> {
+        loop {
+            match embassy_time::with_timeout(
+                embassy_time::Duration::from_secs(15),
+                self.0.changed(),
+            )
+            .await
+            {
+                Ok(value) => {
+                    writer
+                        .write_event("value_changed", alloc::format!("{value}").as_str())
+                        .await?;
+                }
+                Err(_) => writer.write_keepalive().await?,
+            }
+        }
+    }
+}
+
+
+/// Peripherals consumed by the networking stack during [`EspThing::run`].
+///
+/// Demos extract these from `Peripherals` in [`EspThingState::new`] and return
+/// them so the library can bring up Wi-Fi / embassy-net.
+pub struct NetworkPeripherals<'d> {
+    pub timg0: esp_hal::peripherals::TIMG0<'d>,
+    pub sw_interrupt: esp_hal::peripherals::SW_INTERRUPT<'d>,
+    pub wifi: esp_hal::peripherals::WIFI<'d>,
 }
 
 pub trait EspThingState {
+    /// Consume the full `Peripherals`, extract hardware for the thing, and return
+    /// the state alongside the peripherals the networking stack needs.
+    ///
+    /// The serialized TD is set later via [`Self::set_td`] once the network is up.
     fn new(
         spawner: embassy_executor::Spawner,
-        td: String,
-        thing_peripherals: ThingPeripherals<'static>,
-    ) -> &'static Self;
+        peripherals: esp_hal::peripherals::Peripherals,
+    ) -> (&'static Self, NetworkPeripherals<'static>);
+
+    /// Set the serialized Thing Description, called after the network is up.
+    fn set_td(&self, td: &'static str);
 }
 
 pub trait EspThing<Props>
@@ -154,13 +223,17 @@ where
 
         esp_alloc::heap_allocator!(size: 200 * 1024);
 
-        let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
-        let sw_int =
-            esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+        // Let the demo extract its hardware and hand back the network peripherals.
+        let (app_state, net_peripherals) = Props::State::new(spawner, peripherals);
+
+        let timg0 = esp_hal::timer::timg::TimerGroup::new(net_peripherals.timg0);
+        let sw_int = esp_hal::interrupt::software::SoftwareInterruptControl::new(
+            net_peripherals.sw_interrupt,
+        );
         esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
         let (mut controller, interfaces) =
-            esp_radio::wifi::new(peripherals.WIFI, ControllerConfig::default()).unwrap();
+            esp_radio::wifi::new(net_peripherals.wifi, ControllerConfig::default()).unwrap();
 
         // Power-save was previously set via ControllerConfig; in 0.18 it must be
         // applied explicitly, otherwise the radio runs at full power (hot + thirsty).
@@ -220,17 +293,8 @@ where
 
         let td = serde_json::to_string(&td).unwrap();
 
-        let thing_peripherals = ThingPeripherals {
-            I2C0: peripherals.I2C0,
-            GPIO2: peripherals.GPIO2,
-            GPIO8: peripherals.GPIO8,
-            GPIO9: peripherals.GPIO9,
-            GPIO10: peripherals.GPIO10,
-            RMT: peripherals.RMT,
-            TSENS: peripherals.TSENS,
-        };
-
-        let app_state = Props::State::new(spawner, td, thing_peripherals);
+        let td = mk_static!(String, td);
+        Props::State::set_td(app_state, td.as_str());
 
         let app = alloc::boxed::Box::leak(alloc::boxed::Box::new(Props::default().build_app()));
 

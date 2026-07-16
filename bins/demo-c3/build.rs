@@ -3,13 +3,19 @@ fn main() {
     linker_be_nice();
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
-    println!("cargo:rerun-if-changed=.env");
+    println!("cargo:rerun-if-changed=../../.env");
 }
 
-/// Load SSID/PASSWORD from a gitignored local `.env` if present, exposing them to
-/// the crate via `cargo:rustc-env`. Real environment variables take precedence.
+/// Load SSID/PASSWORD from the workspace-root `.env` if present.
 fn load_env() {
-    let Ok(src) = std::fs::read_to_string(".env") else {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let env_path = std::path::Path::new(&manifest)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(".env");
+    let Ok(src) = std::fs::read_to_string(&env_path) else {
         return;
     };
     for line in src.lines() {
@@ -22,7 +28,6 @@ fn load_env() {
         };
         let key = key.trim();
         let value = value.trim().trim_matches('"');
-        // Only set if not already present in the real environment.
         if std::env::var_os(key).is_none() {
             println!("cargo:rustc-env={key}={value}");
         }
@@ -49,7 +54,6 @@ fn linker_be_nice() {
                 }
                 _ => (),
             },
-            // we don't have anything helpful for "missing-lib" yet
             _ => {
                 std::process::exit(1);
             }

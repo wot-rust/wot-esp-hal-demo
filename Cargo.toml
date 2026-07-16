@@ -1,33 +1,42 @@
-[package]
-name = "wot-esp-hal-demo"
-version = "0.1.0"
-authors = [ "Luca Barbato <lu_zero@gentoo.org>"]
+[workspace]
+resolver = "2"
+members = [
+    "lib",
+    "bins/demo-c3",
+]
+
+[workspace.package]
+version = "0.2.0"
+authors = ["Luca Barbato <lu_zero@gentoo.org>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
-[dependencies]
-esp-backtrace = { version = "0.19", features = [
-    "esp32c3",
-    "panic-handler",
-    "println",
-] }
+[workspace.dependencies]
+# Shared infrastructure crate
+wot-esp-thing = { path = "lib" }
 
-esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c3", "log-04"] }
-esp-hal = { version = "1.1", features = ["esp32c3", "unstable"] }
-esp-println = { version = "0.17", features = ["esp32c3", "log-04"] }
+# ESP crates — chip feature selected by each binary crate
+esp-backtrace = { version = "0.19" }
+esp-bootloader-esp-idf = { version = "0.5.0" }
+esp-hal = { version = "1.1" }
+esp-println = { version = "0.17" }
 esp-alloc = { version = "0.10" }
-esp-rtos  = { version = "0.3.0",  features = ["esp32c3", "esp-radio", "embassy", "log-04"] }
+esp-rtos = { version = "0.3.0" }
+esp-radio = { version = "0.18", default-features = false }
 
-log = { version = "0.4.21" }
+# Embassy
+embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-executor = { version = "0.10", features = ["nightly"] }
+embassy-time = { version = "0.5.0", features = ["generic-queue-8"] }
+embassy-futures = "0.1.2"
+embassy-sync = "0.8"
 
-embedded-io = "0.7.1"
-shtcx = "1.0.0"
-
-embedded-io-async = "0.7.0"
-embassy-net = { version = "0.9", features = [ "tcp", "udp", "dhcpv4", "medium-ethernet"] }
-
-esp-radio = { version = "0.18", default-features = false, features = ["esp32c3", "wifi", "esp-alloc", "unstable"] }
-heapless = { version = "0.9.0", default-features = false }
+# Networking / HTTP / WoT
+edge-nal = "0.7"
+edge-nal-embassy = "0.9"
+edge-mdns = "0.8"
+picoserve = { version = "0.18", features = ["embassy", "alloc", "json"] }
+wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
 smoltcp = { version = "0.12.0", default-features = false, features = [
     "proto-dhcpv4",
     "proto-ipv4",
@@ -37,40 +46,36 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
     "socket-tcp",
     "socket-udp",
 ] }
-embassy-executor = { version = "0.10",  features = ["nightly"] }
-embassy-time     = { version = "0.5.0",  features = ["generic-queue-8"] }
-embassy-futures = "0.1.2"
-embassy-sync = "0.8"
-static_cell      = { version = "2.1.0",  features = ["nightly"] }
-picoserve = { version = "0.18", features = ["embassy", "alloc", "json"] }
-wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
+
+# Utilities
+log = "0.4.21"
+heapless = { version = "0.9.0", default-features = false }
+static_cell = { version = "2.1.0", features = ["nightly"] }
 serde_json = { version = "1.0.133", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
 uuid = { version = "1.11.0", default-features = false }
 const-random = "0.1.15"
+portable-atomic = { version = "1.10.0", default-features = false }
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+fugit = "0.3.9"
+
+# Smart LED (only used by light-c3)
 smart-leds-trait = { version = "0.3.0", features = ["serde"] }
 smart-leds = { version = "0.4.0", features = ["serde"] }
-esp-hal-smartled = { version = "0.17", features = ["esp32c3"] }
-serde = { version = "1.0.215", default-features = false, features = ["alloc"] }
-portable-atomic = { version = "1.10.0", default-features = false }
-edge-nal = "0.7"
-edge-nal-embassy = "0.9"
-edge-mdns = "0.8"
-fugit = "0.3.9"
+esp-hal-smartled = { version = "0.17" }
+
+# SHTC3 sensor (thermometer-c3, fan-c6)
+shtcx = "1.0.0"
 
 [patch.crates-io]
 esp-hal-smartled = { git = "https://github.com/wot-rust/esp-hal-community", branch = "smartled-esp-hal-1.1" }
 
-[features]
-default = ["uuid-id"]
-uuid-id = []
-
 [profile.dev]
-# Rust debug is too slow.
-# For debug builds always builds with some optimization
 opt-level = "s"
 
 [profile.release]
-codegen-units = 1        # LLVM can perform better optimizations using a single thread
+codegen-units = 1
 debug = 2
 debug-assertions = false
 incremental = false

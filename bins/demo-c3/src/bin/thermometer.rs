@@ -7,11 +7,15 @@ extern crate alloc;
 
 use alloc::{
     format,
-    string::{String, ToString},
+    string::String,
 };
 
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, watch::Watch};
+use embassy_sync::{
+    blocking_mutex::{raw::CriticalSectionRawMutex, CriticalSectionMutex},
+    mutex::Mutex,
+    watch::Watch,
+};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -22,7 +26,7 @@ use esp_hal::{
 };
 use picoserve::{
     extract::State,
-    response::{self, Redirect, Response, StatusCode},
+    response::{self, Response, StatusCode},
     routing::get,
     AppWithStateBuilder,
 };
@@ -35,7 +39,7 @@ use wot_td::{
     Thing,
 };
 
-use wot_esp_hal_demo::{mk_static, EspThing as _};
+use wot_esp_thing::{mk_static, EspThing as _, SseEvents, TdState};
 
 #[derive(Clone, Copy)]
 struct AppState {
@@ -44,7 +48,7 @@ struct AppState {
         &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking>>,
     >,
     die_sensor: &'static TemperatureSensor<'static>,
-    td: &'static str,
+    td: &'static CriticalSectionMutex<core::cell::Cell<&'static str>>,
 }
 
 impl AppState {
@@ -75,14 +79,24 @@ impl AppState {
     }
 }
 
-impl wot_esp_hal_demo::EspThingState for AppState {
+impl TdState for AppState {
+    fn td(&self) -> &'static str {
+        self.td.lock(|c| c.get())
+    }
+}
+
+impl wot_esp_thing::EspThingState for AppState {
     fn new(
         spawner: embassy_executor::Spawner,
-        td: String,
-        peripherals: wot_esp_hal_demo::ThingPeripherals<'static>,
-    ) -> &'static Self {
-        // Initialize temperature sensor
+        peripherals: esp_hal::peripherals::Peripherals,
+    ) -> (&'static Self, wot_esp_thing::NetworkPeripherals<'static>) {
+        let net = wot_esp_thing::NetworkPeripherals {
+            timg0: peripherals.TIMG0,
+            sw_interrupt: peripherals.SW_INTERRUPT,
+            wifi: peripherals.WIFI,
+        };
 
+        // Initialize temperature sensor
         let sda = peripherals.GPIO10;
         let scl = peripherals.GPIO8;
 
@@ -124,25 +138,34 @@ impl wot_esp_hal_demo::EspThingState for AppState {
                 .expect("Cannot access the internal temperature sensor")
         );
 
+        let td_cell = mk_static!(
+            CriticalSectionMutex<core::cell::Cell<&'static str>>,
+            CriticalSectionMutex::new(core::cell::Cell::new(""))
+        );
+
         let app_state = mk_static!(
             AppState,
             AppState {
                 sensor,
                 die_sensor,
-                td: mk_static!(String, td),
+                td: td_cell,
             }
         );
 
         spawner.spawn(temperature_write_task(app_state).expect("temperature_write_task"));
 
-        app_state
+        (app_state, net)
+    }
+
+    fn set_td(&self, td: &'static str) {
+        self.td.lock(|c| c.set(td));
     }
 }
 
 #[derive(Default)]
 struct AppProps;
 
-impl wot_esp_hal_demo::EspThing<AppProps> for AppProps {
+impl wot_esp_thing::EspThing<AppProps> for AppProps {
     const NAME: &'static str = "shtc3";
 
     fn build_td(name: &str, base_uri: String, id: String) -> Thing {
@@ -211,14 +234,7 @@ impl AppWithStateBuilder for AppProps {
     type PathRouter = impl picoserve::routing::PathRouter<Self::State>;
 
     fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
-        picoserve::Router::new()
-            .route(
-                "/",
-                get(async |State(state): State<AppState>| {
-                    Response::ok(state.td).with_header("Content-Type", "application/td+json")
-                }),
-            )
-            .route("/.well-known/wot", get(async || Redirect::to("/")))
+        wot_esp_thing::td_routes::<AppState>()
             .route(
                 "/properties/temperature",
                 get(async move |State(state): State<AppState>| {
@@ -266,7 +282,7 @@ impl AppWithStateBuilder for AppProps {
             )
             .route(
                 "/events/temperature",
-                get(async move || response::EventStream(Events(WATCH.receiver().unwrap()))),
+                get(async move || response::EventStream(SseEvents(WATCH.receiver().unwrap()))),
             )
     }
 }
@@ -297,31 +313,6 @@ async fn temperature_write_task(state: &'static AppState) -> ! {
 }
 
 static WATCH: Watch<CriticalSectionRawMutex, f32, 2> = Watch::new();
-
-struct Events<'a>(embassy_sync::watch::Receiver<'a, CriticalSectionRawMutex, f32, 2>);
-
-impl response::sse::EventSource for Events<'_> {
-    async fn write_events<W: picoserve::io::Write>(
-        mut self,
-        mut writer: response::sse::EventWriter<'_, W>,
-    ) -> Result<(), W::Error> {
-        loop {
-            match embassy_time::with_timeout(
-                embassy_time::Duration::from_secs(15),
-                self.0.changed(),
-            )
-            .await
-            {
-                Ok(value) => {
-                    writer
-                        .write_event("value_changed", value.to_string().as_str())
-                        .await?;
-                }
-                Err(_) => writer.write_keepalive().await?,
-            }
-        }
-    }
-}
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
