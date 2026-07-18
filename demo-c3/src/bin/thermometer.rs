@@ -5,10 +5,7 @@
 
 extern crate alloc;
 
-use alloc::{
-    format,
-    string::String,
-};
+use alloc::string::String;
 
 use embassy_executor::Spawner;
 use embassy_sync::{
@@ -26,7 +23,7 @@ use esp_hal::{
 };
 use picoserve::{
     extract::State,
-    response::{self, Response, StatusCode},
+    response::{self},
     routing::get,
     AppWithStateBuilder,
 };
@@ -39,7 +36,9 @@ use wot_td::{
     Thing,
 };
 
-use wot_esp_thing::{mk_static, EspThing as _, SseEvents, TdState};
+use wot_esp_thing::{
+    mk_static, to_json_response, to_json_result, EspThing as _, SseEvents, TdState,
+};
 
 #[derive(Clone, Copy)]
 struct AppState {
@@ -238,46 +237,25 @@ impl AppWithStateBuilder for AppProps {
             .route(
                 "/properties/temperature",
                 get(async move |State(state): State<AppState>| {
-                    let temperature = state.get_temperature().await;
-
-                    if let Ok(temperature) = temperature {
-                        let body = format!("{temperature}");
-
-                        return Response::ok(body).with_header("Content-Type", "application/json");
-                    }
-
-                    Response::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Failed to read temperature value.".into(),
+                    to_json_result(
+                        state.get_temperature().await,
+                        "Failed to read temperature value.",
                     )
-                    .with_header("Content-Type", "text/plain")
                 }),
             )
             .route(
                 "/properties/humidity",
                 get(async move |State(state): State<AppState>| {
-                    let humidity = state.get_humidity().await;
-
-                    if let Ok(humidity) = humidity {
-                        let body = format!("{humidity}");
-
-                        return Response::ok(body).with_header("Content-Type", "application/json");
-                    }
-
-                    Response::new(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Failed to read humidity value.".into(),
+                    to_json_result(
+                        state.get_humidity().await,
+                        "Failed to read humidity value.",
                     )
-                    .with_header("Content-Type", "text/plain")
                 }),
             )
             .route(
                 "/properties/die_temperature",
                 get(async move |State(state): State<AppState>| {
-                    let die_temperature = state.get_die_temperature();
-                    let body = format!("{die_temperature}");
-
-                    Response::ok(body).with_header("Content-Type", "application/json")
+                    to_json_response(&state.get_die_temperature())
                 }),
             )
             .route(

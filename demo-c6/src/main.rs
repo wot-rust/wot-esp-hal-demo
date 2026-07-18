@@ -5,7 +5,7 @@
 
 extern crate alloc;
 
-use alloc::{format, string::String};
+use alloc::string::String;
 use embassy_executor::Spawner;
 use embassy_sync::{
     blocking_mutex::{raw::CriticalSectionRawMutex, CriticalSectionMutex},
@@ -29,13 +29,15 @@ use esp_hal::{
 };
 use picoserve::{
     extract::State,
-    response::{self, Response, StatusCode},
+    response::{self, StatusCode},
     routing::get,
     AppWithStateBuilder,
 };
 use portable_atomic::{AtomicBool, AtomicI16, Ordering};
 use sht4x_rjw::asynch::SHT4x;
-use wot_esp_thing::{mk_static, td_routes, EspThing as _, SseEvents, TdState};
+use wot_esp_thing::{
+    mk_static, td_routes, to_json_response, to_json_result, EspThing as _, SseEvents, TdState,
+};
 use wot_td::{
     builder::{
         BuildableDataSchema, BuildableHumanReadableInfo, BuildableInteractionAffordance,
@@ -353,49 +355,28 @@ impl AppWithStateBuilder for AppProps {
             .route(
                 "/properties/temperature",
                 get(async move |State(state): State<AppState>| {
-                    match state.get_temperature().await {
-                        Ok(t) => {
-                            let body = format!("{t}");
-                            Response::ok(body)
-                                .with_header("Content-Type", "application/json")
-                        }
-                        Err(_) => Response::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Failed to read temperature".into(),
-                        )
-                        .with_header("Content-Type", "text/plain"),
-                    }
+                    to_json_result(
+                        state.get_temperature().await,
+                        "Failed to read temperature",
+                    )
                 }),
             )
             .route(
                 "/properties/humidity",
                 get(async move |State(state): State<AppState>| {
-                    match state.get_humidity().await {
-                        Ok(h) => {
-                            let body = format!("{h}");
-                            Response::ok(body)
-                                .with_header("Content-Type", "application/json")
-                        }
-                        Err(_) => Response::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Failed to read humidity".into(),
-                        )
-                        .with_header("Content-Type", "text/plain"),
-                    }
+                    to_json_result(state.get_humidity().await, "Failed to read humidity")
                 }),
             )
             .route(
                 "/properties/die_temperature",
                 get(async move |State(state): State<AppState>| {
-                    let body = format!("{}", state.get_die_temperature());
-                    Response::ok(body).with_header("Content-Type", "application/json")
+                    to_json_response(&state.get_die_temperature())
                 }),
             )
             .route(
                 "/properties/on",
                 get(|State(state): State<AppState>| async move {
-                    let body = format!("{}", state.get_fan_on());
-                    Response::ok(body).with_header("Content-Type", "application/json")
+                    to_json_response(&state.get_fan_on())
                 })
                 .put(
                     |State(state): State<AppState>,
@@ -408,8 +389,7 @@ impl AppWithStateBuilder for AppProps {
             .route(
                 "/properties/speed",
                 get(|State(state): State<AppState>| async move {
-                    let body = format!("{}", state.get_fan_speed());
-                    Response::ok(body).with_header("Content-Type", "application/json")
+                    to_json_response(&state.get_fan_speed())
                 })
                 .put(
                     |State(state): State<AppState>,
@@ -422,8 +402,7 @@ impl AppWithStateBuilder for AppProps {
             .route(
                 "/properties/rpm",
                 get(async move |State(state): State<AppState>| {
-                    let body = format!("{}", state.get_fan_rpm());
-                    Response::ok(body).with_header("Content-Type", "application/json")
+                    to_json_response(&state.get_fan_rpm())
                 }),
             )
             .route(
