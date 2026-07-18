@@ -44,13 +44,15 @@ enum Commands {
         #[arg(long)]
         port: Option<String>,
     },
+    /// `cargo check` every demo for its target triple
+    CheckAll,
     /// List available demos
     List,
 }
 
 fn cargo(demo: &str, action: &str, extra_args: &[&str]) {
-    let (_, pkg, target) = find_demo(demo);
-    let mut args = vec![action, "-p", pkg, "--target", target];
+    let (bin, pkg, target) = find_demo(demo);
+    let mut args = vec![action, "-p", pkg, "--bin", bin, "--target", target];
     args.push("-Z");
     args.push("build-std=alloc,core");
     args.extend_from_slice(extra_args);
@@ -99,6 +101,40 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        Commands::CheckAll => {
+            let mut failed = false;
+            for (name, _, _) in DEMOS {
+                println!("=== check {name} ===");
+                let (bin, pkg, target) = find_demo(name);
+                let args = [
+                    "check",
+                    "-p",
+                    pkg,
+                    "--bin",
+                    bin,
+                    "--target",
+                    target,
+                    "-Z",
+                    "build-std=alloc,core",
+                ];
+                println!("$ cargo {}", args.join(" "));
+                match Command::new("cargo").args(args).status() {
+                    Ok(s) if s.success() => {}
+                    Ok(_) => {
+                        eprintln!("check failed for {name}");
+                        failed = true;
+                    }
+                    Err(e) => {
+                        eprintln!("cargo error for {name}: {e}");
+                        failed = true;
+                    }
+                }
+            }
+            if failed {
+                std::process::exit(1);
+            }
+            println!("All demos checked successfully.");
         }
         Commands::List => {
             println!("Available demos:");

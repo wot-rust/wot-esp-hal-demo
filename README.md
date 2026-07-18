@@ -40,6 +40,7 @@ The simplest way is via the xtask, which handles target selection and flashing:
 
 ```
 $ cargo xtask list                                      # list available demos
+$ SSID=<wifi> PASSWORD=<pass> cargo xtask check-all     # typecheck every demo
 $ SSID=<wifi> PASSWORD=<pass> cargo xtask build fan     # build
 $ SSID=<wifi> PASSWORD=<pass> cargo xtask run fan       # build + flash + monitor
 $ SSID=<wifi> PASSWORD=<pass> cargo xtask run fan --port /dev/cu.usbmodem101
