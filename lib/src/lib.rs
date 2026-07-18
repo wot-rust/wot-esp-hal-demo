@@ -147,6 +147,43 @@ pub async fn web_task<Props: AppWithStateBuilder>(
         .await;
 }
 
+/// Thread-safe cell holding the serialized Thing Description string.
+///
+/// Created empty and filled via [`EspThingState::set_td`] after the network is
+/// up (so the TD can include the device base URI).
+pub struct TdCell {
+    inner: embassy_sync::blocking_mutex::CriticalSectionMutex<core::cell::Cell<&'static str>>,
+}
+
+impl TdCell {
+    /// Create an empty cell (TD not yet available).
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            inner: embassy_sync::blocking_mutex::CriticalSectionMutex::new(core::cell::Cell::new(
+                "",
+            )),
+        }
+    }
+
+    /// Store the serialized TD (`td` must live for `'static`).
+    pub fn set(&self, td: &'static str) {
+        self.inner.lock(|c| c.set(td));
+    }
+
+    /// Current TD JSON, or an empty string before [`Self::set`].
+    #[must_use]
+    pub fn get(&self) -> &'static str {
+        self.inner.lock(|c| c.get())
+    }
+}
+
+impl Default for TdCell {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A trait for application states that carry a serialized Thing Description.
 pub trait TdState {
     /// The serialized Thing Description (JSON), served at `/`.
