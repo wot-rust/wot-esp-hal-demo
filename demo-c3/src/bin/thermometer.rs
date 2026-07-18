@@ -291,7 +291,7 @@ impl AppWithStateBuilder for AppProps {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 async fn temperature_write_task(state: &'static AppState) -> ! {
     let sender = WATCH.sender();
-    let t = state.get_temperature().await.unwrap_or(-500.0);
+    let mut last_temp = state.get_temperature().await.unwrap_or(-500.0);
 
     loop {
         state
@@ -305,8 +305,9 @@ async fn temperature_write_task(state: &'static AppState) -> ! {
         let temperature = state.get_temperature().await;
 
         if let Ok(temperature) = temperature {
-            if ((t - temperature) * 100f32) as u32 / 10 != 0 {
+            if ((last_temp - temperature) * 100f32) as u32 / 10 != 0 {
                 sender.send(temperature);
+                last_temp = temperature;
             }
         }
     }
