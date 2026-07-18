@@ -9,7 +9,7 @@ use alloc::string::String;
 
 use embassy_executor::Spawner;
 use embassy_sync::{
-    blocking_mutex::{raw::CriticalSectionRawMutex, CriticalSectionMutex},
+    blocking_mutex::raw::CriticalSectionRawMutex,
     mutex::Mutex,
     watch::Watch,
 };
@@ -37,7 +37,7 @@ use wot_td::{
 };
 
 use wot_esp_thing::{
-    mk_static, to_json_response, to_json_result, EspThing as _, SseEvents, TdState,
+    mk_static, to_json_response, to_json_result, EspThing as _, SseEvents, TdCell, TdState,
 };
 
 #[derive(Clone, Copy)]
@@ -47,7 +47,7 @@ struct AppState {
         &'static mut ShtCx<Sht2Gen, &'static mut I2c<'static, Blocking>>,
     >,
     die_sensor: &'static TemperatureSensor<'static>,
-    td: &'static CriticalSectionMutex<core::cell::Cell<&'static str>>,
+    td: &'static TdCell,
 }
 
 impl AppState {
@@ -80,7 +80,7 @@ impl AppState {
 
 impl TdState for AppState {
     fn td(&self) -> &'static str {
-        self.td.lock(|c| c.get())
+        self.td.get()
     }
 }
 
@@ -137,17 +137,12 @@ impl wot_esp_thing::EspThingState for AppState {
                 .expect("Cannot access the internal temperature sensor")
         );
 
-        let td_cell = mk_static!(
-            CriticalSectionMutex<core::cell::Cell<&'static str>>,
-            CriticalSectionMutex::new(core::cell::Cell::new(""))
-        );
-
         let app_state = mk_static!(
             AppState,
             AppState {
                 sensor,
                 die_sensor,
-                td: td_cell,
+                td: mk_static!(TdCell, TdCell::new()),
             }
         );
 
@@ -157,7 +152,7 @@ impl wot_esp_thing::EspThingState for AppState {
     }
 
     fn set_td(&self, td: &'static str) {
-        self.td.lock(|c| c.set(td));
+        self.td.set(td);
     }
 }
 

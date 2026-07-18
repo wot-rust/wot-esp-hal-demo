@@ -29,16 +29,18 @@ use wot_td::{
     Thing,
 };
 
-use wot_esp_thing::{mk_static, td_routes, to_json_response, EspThing as _, SseEvents, TdState};
+use wot_esp_thing::{
+    mk_static, td_routes, to_json_response, EspThing as _, SseEvents, TdCell, TdState,
+};
 #[derive(Clone, Copy)]
 struct AppState {
     on: &'static AtomicBool,
-    td: &'static embassy_sync::blocking_mutex::CriticalSectionMutex<core::cell::Cell<&'static str>>,
+    td: &'static TdCell,
 }
 
 impl TdState for AppState {
     fn td(&self) -> &'static str {
-        self.td.lock(|c| c.get())
+        self.td.get()
     }
 }
 
@@ -57,10 +59,7 @@ impl wot_esp_thing::EspThingState for AppState {
             AppState,
             AppState {
                 on: mk_static!(AtomicBool, AtomicBool::new(false)),
-                td: mk_static!(
-                    embassy_sync::blocking_mutex::CriticalSectionMutex<core::cell::Cell<&'static str>>,
-                    embassy_sync::blocking_mutex::CriticalSectionMutex::new(core::cell::Cell::new(""))
-                ),
+                td: mk_static!(TdCell, TdCell::new()),
             }
         );
 
@@ -74,7 +73,7 @@ impl wot_esp_thing::EspThingState for AppState {
     }
 
     fn set_td(&self, td: &'static str) {
-        self.td.lock(|c| c.set(td));
+        self.td.set(td);
     }
 }
 

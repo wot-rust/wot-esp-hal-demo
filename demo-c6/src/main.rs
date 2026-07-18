@@ -36,7 +36,8 @@ use picoserve::{
 use portable_atomic::{AtomicBool, AtomicI16, Ordering};
 use sht4x_rjw::asynch::SHT4x;
 use wot_esp_thing::{
-    mk_static, td_routes, to_json_response, to_json_result, EspThing as _, SseEvents, TdState,
+    mk_static, td_routes, to_json_response, to_json_result, EspThing as _, SseEvents, TdCell,
+    TdState,
 };
 use wot_td::{
     builder::{
@@ -59,7 +60,7 @@ struct AppState {
         &'static CriticalSectionMutex<esp_hal::ledc::channel::Channel<'static, LowSpeed>>,
     fan_on: &'static AtomicBool,
     fan_duty: &'static CriticalSectionMutex<core::cell::Cell<u8>>,
-    td: &'static CriticalSectionMutex<core::cell::Cell<&'static str>>,
+    td: &'static TdCell,
 }
 
 impl AppState {
@@ -112,7 +113,7 @@ impl AppState {
 
 impl TdState for AppState {
     fn td(&self) -> &'static str {
-        self.td.lock(|c| c.get())
+        self.td.get()
     }
 }
 
@@ -201,10 +202,6 @@ impl wot_esp_thing::EspThingState for AppState {
             CriticalSectionMutex<core::cell::Cell<u8>>,
             CriticalSectionMutex::new(core::cell::Cell::new(100))
         );
-        let td_cell = mk_static!(
-            CriticalSectionMutex<core::cell::Cell<&'static str>>,
-            CriticalSectionMutex::new(core::cell::Cell::new(""))
-        );
 
         let app_state = mk_static!(
             AppState,
@@ -214,7 +211,7 @@ impl wot_esp_thing::EspThingState for AppState {
                 fan_channel,
                 fan_on,
                 fan_duty,
-                td: td_cell,
+                td: mk_static!(TdCell, TdCell::new()),
             }
         );
 
@@ -225,7 +222,7 @@ impl wot_esp_thing::EspThingState for AppState {
     }
 
     fn set_td(&self, td: &'static str) {
-        self.td.lock(|cell| cell.set(td));
+        self.td.set(td);
     }
 }
 

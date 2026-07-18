@@ -7,10 +7,7 @@ extern crate alloc;
 
 use alloc::string::String;
 use embassy_executor::Spawner;
-use embassy_sync::{
-    blocking_mutex::{raw::CriticalSectionRawMutex, CriticalSectionMutex},
-    mutex::Mutex,
-};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::rmt::Rmt;
@@ -22,7 +19,9 @@ use picoserve::{
 };
 
 use smart_leds::{brightness, colors::WHITE, gamma, SmartLedsWrite, RGB8};
-use wot_esp_thing::{mk_static, to_json_response, td_routes, EspThing as _, TdState};
+use wot_esp_thing::{
+    mk_static, td_routes, to_json_response, EspThing as _, TdCell, TdState,
+};
 use wot_td::{
     builder::{
         BuildableHumanReadableInfo, BuildableInteractionAffordance, IntegerDataSchemaBuilderLike,
@@ -65,12 +64,12 @@ impl Light<'_> {
 #[derive(Clone, Copy)]
 struct AppState {
     light: &'static Mutex<CriticalSectionRawMutex, &'static mut Light<'static>>,
-    td: &'static CriticalSectionMutex<core::cell::Cell<&'static str>>,
+    td: &'static TdCell,
 }
 
 impl TdState for AppState {
     fn td(&self) -> &'static str {
-        self.td.lock(|c| c.get())
+        self.td.get()
     }
 }
 
@@ -110,16 +109,11 @@ impl wot_esp_thing::EspThingState for AppState {
             Mutex::new(light)
         );
 
-        let td_cell = mk_static!(
-            CriticalSectionMutex<core::cell::Cell<&'static str>>,
-            CriticalSectionMutex::new(core::cell::Cell::new(""))
-        );
-
         let app_state = mk_static!(
             AppState,
             AppState {
                 light,
-                td: td_cell,
+                td: mk_static!(TdCell, TdCell::new()),
             }
         );
 
@@ -127,7 +121,7 @@ impl wot_esp_thing::EspThingState for AppState {
     }
 
     fn set_td(&self, td: &'static str) {
-        self.td.lock(|c| c.set(td));
+        self.td.set(td);
     }
 }
 
