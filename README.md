@@ -109,9 +109,9 @@ temperature/humidity from an SHT41 sensor via Qwiic.
 | `temperature` | number | R | Ambient temperature from SHT41 (°C) |
 | `humidity` | number | R | Relative humidity from SHT41 (%) |
 | `die_temperature` | number | R | ESP32-C6 internal die temperature (°C) |
-| `fan_on` | boolean | R/W | Fan enable/disable |
-| `fan_speed` | integer 0–100 | R/W | Fan PWM duty cycle (%) |
-| `fan_rpm` | integer | R | Measured fan speed (RPM) |
+| `on` | boolean | R/W | Fan enable/disable |
+| `speed` | integer 0–100 | R/W | Fan PWM duty cycle (%) |
+| `rpm` | integer | R | Measured fan speed (RPM) |
 
 **Events:** `temperature` (SSE), `fan_rpm` (SSE)
 
