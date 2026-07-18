@@ -97,13 +97,17 @@ impl AppState {
         self.fan_on.load(Ordering::Relaxed)
     }
 
+    /// Set fan enable; notifies [`ON_WATCH`] when the value changes.
     fn set_fan_on(&self, on: bool) {
-        self.fan_on.store(on, Ordering::Relaxed);
+        let was = self.fan_on.swap(on, Ordering::AcqRel);
         let duty = self.fan_duty.lock(|d| d.get());
         let effective = if on { duty } else { 0 };
         self.fan_channel.lock(|ch| {
             let _ = ch.set_duty(effective);
         });
+        if was != on {
+            ON_WATCH.sender().send(on);
+        }
     }
 
     fn get_fan_rpm(&self) -> i16 {
@@ -215,8 +219,15 @@ impl wot_esp_thing::EspThingState for AppState {
             }
         );
 
+        // --- BOOT button (GPIO9) toggles property `on` ---
+        let btn = Input::new(
+            peripherals.GPIO9,
+            InputConfig::default().with_pull(Pull::Up),
+        );
+
         spawner.spawn(tach_sample_task(unit_ref).expect("tach_sample_task"));
         spawner.spawn(temperature_write_task(app_state).expect("temperature_write_task"));
+        spawner.spawn(button_task(app_state, btn).expect("button_task"));
 
         (app_state, net)
     }
@@ -240,7 +251,9 @@ impl wot_esp_thing::EspThing<AppProps> for AppProps {
             .finish_extend()
             .id(id)
             .base(base_uri)
-            .description("Noctua 5V fan controller with SHT41 sensor")
+            .description(
+                "Noctua 5V fan controller with SHT41 sensor; BOOT toggles fan on/off",
+            )
             .security(|builder| builder.no_sec().required().with_key("nosec_sc"))
             .property("temperature", |p| {
                 p.finish_extend_data_schema()
@@ -285,7 +298,9 @@ impl wot_esp_thing::EspThing<AppProps> for AppProps {
                 p.finish_extend_data_schema()
                     .attype("OnOffProperty")
                     .title("Fan on/off")
-                    .description("Whether the fan is running")
+                    .description(
+                        "Whether the fan is running. Writable over HTTP; toggled by the BOOT button",
+                    )
                     .form(|f| {
                         f.href("/properties/on")
                             .op(wot_td::thing::FormOperation::ReadProperty)
@@ -320,6 +335,15 @@ impl wot_esp_thing::EspThing<AppProps> for AppProps {
                     .integer()
                     .read_only()
                     .unit("rpm")
+            })
+            .event("on", |b| {
+                b.data(|b| b.finish_extend().bool()).form(|form_builder| {
+                    form_builder
+                        .href("/events/on")
+                        .op(wot_td::thing::FormOperation::SubscribeEvent)
+                        .op(wot_td::thing::FormOperation::UnsubscribeEvent)
+                        .subprotocol("sse")
+                })
             })
             .event("temperature", |b| {
                 b.data(|b| b.finish_extend().number().unit("Celsius"))
@@ -406,6 +430,10 @@ impl AppWithStateBuilder for AppProps {
                 }),
             )
             .route(
+                "/events/on",
+                get(async move || response::EventStream(SseEvents(ON_WATCH.receiver().unwrap()))),
+            )
+            .route(
                 "/events/temperature",
                 get(async move || response::EventStream(SseEvents(WATCH.receiver().unwrap()))),
             )
@@ -418,6 +446,7 @@ impl AppWithStateBuilder for AppProps {
 
 static WATCH: Watch<CriticalSectionRawMutex, f32, 2> = Watch::new();
 static RPM_WATCH: Watch<CriticalSectionRawMutex, i16, 2> = Watch::new();
+static ON_WATCH: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new();
 
 #[embassy_executor::task]
 async fn tach_sample_task(unit: &'static esp_hal::pcnt::unit::Unit<'static, 0>) -> ! {
@@ -452,6 +481,17 @@ async fn temperature_write_task(state: &'static AppState) -> ! {
                 last_temp = temp;
             }
         }
+    }
+}
+
+/// BOOT button (active-low) toggles the fan [`AppState::set_fan_on`] property.
+#[embassy_executor::task]
+async fn button_task(state: &'static AppState, mut btn: Input<'static>) -> ! {
+    loop {
+        btn.wait_for_low().await;
+        let on = !state.get_fan_on();
+        state.set_fan_on(on);
+        btn.wait_for_high().await;
     }
 }
 
