@@ -1,4 +1,5 @@
 fn main() {
-    // Pass-through: nothing to do, env! reads real process env vars.
-    // This file exists only so the lib crate rebuilds when env changes.
+    // WiFi credentials are baked in via env! in lib.rs; rebuild when they change.
+    println!("cargo:rerun-if-env-changed=SSID");
+    println!("cargo:rerun-if-env-changed=PASSWORD");
 }
