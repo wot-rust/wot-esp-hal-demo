@@ -151,7 +151,8 @@ Qwiic  ────────────────────────�
 ### ESP32-C6 WiFi note
 
 The ESP32-C6 WiFi 6 radio does not work reliably with power-saving modes.
-This project uses `PowerSaveMode::None` and sets
+The C6 fan demo overrides `EspThing::WIFI_POWER_SAVE` to `PowerSaveMode::None`
+(C3 demos keep the default `Maximum`). The workspace also sets
 `ESP_RADIO_CONFIG_PHY_ENABLE_USB=false` for stable connectivity
 ([esp-hal#3014](https://github.com/esp-rs/esp-hal/issues/3014)).
 

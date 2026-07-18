@@ -12,8 +12,10 @@ use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_radio::wifi::{
-    sta::StationConfig, Config, ControllerConfig, PowerSaveMode, WifiController, Interface,
+    sta::StationConfig, Config, ControllerConfig, WifiController, Interface,
 };
+
+pub use esp_radio::wifi::PowerSaveMode;
 use picoserve::{
     extract::State,
     response::{IntoResponse, Response, StatusCode},
@@ -279,6 +281,13 @@ where
 {
     const NAME: &'static str;
 
+    /// Wi-Fi modem power-save mode.
+    ///
+    /// Defaults to [`PowerSaveMode::Maximum`] (appropriate for ESP32-C3).
+    /// Override to [`PowerSaveMode::None`] on ESP32-C6 — Maximum breaks WiFi
+    /// there (esp-rs/esp-hal#3014, #3075, #3079).
+    const WIFI_POWER_SAVE: PowerSaveMode = PowerSaveMode::Maximum;
+
     fn build_td(name: &str, base_uri: String, id: String) -> wot_td::Thing;
 
     #[allow(async_fn_in_trait, clippy::must_use_candidate)]
@@ -302,9 +311,9 @@ where
         let (mut controller, interfaces) =
             esp_radio::wifi::new(net_peripherals.wifi, ControllerConfig::default()).unwrap();
 
-        // PowerSaveMode::Maximum breaks WiFi on the ESP32-C6 (known issue,
-        // esp-rs/esp-hal#3014, #3075, #3079). Use None for reliable connectivity.
-        controller.set_power_saving(PowerSaveMode::None).unwrap();
+        controller
+            .set_power_saving(Self::WIFI_POWER_SAVE)
+            .unwrap();
 
         let station_config = Config::Station(
             StationConfig::default()

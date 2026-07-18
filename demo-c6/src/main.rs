@@ -36,8 +36,8 @@ use picoserve::{
 use portable_atomic::{AtomicBool, AtomicI16, Ordering};
 use sht4x_rjw::asynch::SHT4x;
 use wot_esp_thing::{
-    mk_static, td_routes, to_json_response, to_json_result, EspThing as _, SseEvents, TdCell,
-    TdState,
+    mk_static, td_routes, to_json_response, to_json_result, EspThing as _, PowerSaveMode,
+    SseEvents, TdCell, TdState,
 };
 use wot_td::{
     builder::{
@@ -231,6 +231,9 @@ struct AppProps;
 
 impl wot_esp_thing::EspThing<AppProps> for AppProps {
     const NAME: &'static str = "fan";
+
+    // Maximum power-save breaks WiFi on ESP32-C6 (esp-rs/esp-hal#3014, #3075, #3079).
+    const WIFI_POWER_SAVE: PowerSaveMode = PowerSaveMode::None;
 
     fn build_td(name: &str, base_uri: String, id: String) -> Thing {
         Thing::builder(name)
