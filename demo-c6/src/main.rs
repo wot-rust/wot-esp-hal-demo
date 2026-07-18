@@ -355,11 +355,11 @@ impl wot_esp_thing::EspThing<AppProps> for AppProps {
                             .subprotocol("sse")
                     })
             })
-            .event("fan_rpm", |b| {
+            .event("rpm", |b| {
                 b.data(|b| b.finish_extend().integer().unit("rpm"))
                     .form(|form_builder| {
                         form_builder
-                            .href("/events/fan_rpm")
+                            .href("/events/rpm")
                             .op(wot_td::thing::FormOperation::SubscribeEvent)
                             .op(wot_td::thing::FormOperation::UnsubscribeEvent)
                             .subprotocol("sse")
@@ -438,7 +438,7 @@ impl AppWithStateBuilder for AppProps {
                 get(async move || response::EventStream(SseEvents(WATCH.receiver().unwrap()))),
             )
             .route(
-                "/events/fan_rpm",
+                "/events/rpm",
                 get(async move || response::EventStream(SseEvents(RPM_WATCH.receiver().unwrap()))),
             )
     }

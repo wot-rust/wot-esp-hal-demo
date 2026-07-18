@@ -114,7 +114,7 @@ temperature/humidity from an SHT41 sensor via Qwiic.
 | `speed` | integer 0–100 | R/W | Fan PWM duty cycle (%) |
 | `rpm` | integer | R | Measured fan speed (RPM) |
 
-**Events:** `on` (SSE), `temperature` (SSE), `fan_rpm` (SSE)
+**Events:** `on` (SSE), `temperature` (SSE), `rpm` (SSE)
 
 The board **BOOT** button toggles property `on` (same state as HTTP
 `PUT /properties/on`). Subscribers on `/events/on` get `value_changed`
