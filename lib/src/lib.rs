@@ -92,15 +92,17 @@ pub fn to_json_response<T: serde::Serialize>(data: &T) -> impl IntoResponse {
 pub fn to_json_result<T: serde::Serialize, E>(
     result: Result<T, E>,
     err_msg: &'static str,
-) -> Response<String> {
-    match result {
-        Ok(data) => {
+) -> impl IntoResponse {
+    // `Result<impl IntoResponse, impl IntoResponse>` is itself `IntoResponse`.
+    result
+        .map(|data| {
             let body = serde_json::to_string(&data).unwrap();
             Response::ok(body).with_header("Content-Type", "application/json")
-        }
-        Err(_) => Response::new(StatusCode::INTERNAL_SERVER_ERROR, err_msg.into())
-            .with_header("Content-Type", "text/plain"),
-    }
+        })
+        .map_err(|_| {
+            Response::new(StatusCode::INTERNAL_SERVER_ERROR, err_msg)
+                .with_header("Content-Type", "text/plain")
+        })
 }
 
 #[embassy_executor::task]
