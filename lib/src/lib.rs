@@ -55,16 +55,20 @@ const UUID_SEED: [u8; 16] = [
     const_random::const_random!(u8),
 ];
 
-/// Produce an urn that can be used as id
+/// Produce an urn that can be used as id.
+///
+/// When the `uuid-id` feature is enabled, returns a random UUID URN.
+/// Otherwise builds `urn:example/{name}/{mac}` from the thing name and
+/// the device hardware address.
 #[must_use]
-pub fn get_urn_or_uuid(stack: Stack) -> String {
+pub fn get_urn_or_uuid(stack: Stack, name: &str) -> String {
     if cfg!(feature = "uuid-id") {
         let uuid = uuid::Builder::from_random_bytes(UUID_SEED).into_uuid();
 
         uuid.urn().to_string()
     } else {
         let device_id = stack.hardware_address().to_string();
-        format!("urn:example/shtc3/{device_id}")
+        format!("urn:example/{name}/{device_id}")
     }
 }
 
@@ -285,7 +289,7 @@ where
             Timer::after(Duration::from_millis(500)).await;
         }
 
-        let id = get_urn_or_uuid(stack);
+        let id = get_urn_or_uuid(stack, Self::NAME);
 
         let name = Self::NAME;
 
