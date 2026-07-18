@@ -16,7 +16,7 @@ use esp_radio::wifi::{
 };
 use picoserve::{
     extract::State,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, StatusCode},
     routing::get,
     AppRouter, AppWithStateBuilder,
 };
@@ -72,11 +72,35 @@ pub fn get_urn_or_uuid(stack: Stack, name: &str) -> String {
     }
 }
 
+/// Serialize `data` as a JSON HTTP response.
+///
 /// # Panics
+///
+/// Panics if `data` cannot be serialized to JSON.
 #[must_use]
 pub fn to_json_response<T: serde::Serialize>(data: &T) -> impl IntoResponse {
     let body = serde_json::to_string(data).unwrap();
     Response::ok(body).with_header("Content-Type", "application/json")
+}
+
+/// Serialize `Ok` as JSON, or return HTTP 500 with `err_msg` on `Err`.
+///
+/// # Panics
+///
+/// Panics if the `Ok` value cannot be serialized to JSON.
+#[must_use]
+pub fn to_json_result<T: serde::Serialize, E>(
+    result: Result<T, E>,
+    err_msg: &'static str,
+) -> Response<String> {
+    match result {
+        Ok(data) => {
+            let body = serde_json::to_string(&data).unwrap();
+            Response::ok(body).with_header("Content-Type", "application/json")
+        }
+        Err(_) => Response::new(StatusCode::INTERNAL_SERVER_ERROR, err_msg.into())
+            .with_header("Content-Type", "text/plain"),
+    }
 }
 
 #[embassy_executor::task]
