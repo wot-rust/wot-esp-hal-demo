@@ -34,3 +34,6 @@ portable-atomic = { workspace = true }
 
 [features]
 default = ["wot-esp-thing/uuid-id"]
+# Compile in support for a second 4-pin PWM fan on GPIO4 (PWM) / GPIO5 (tach).
+# When disabled, the binary is identical to the single-fan sketch.
+dual-fan = []
