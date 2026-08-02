@@ -198,6 +198,30 @@ $ cargo run --bin fan --target riscv32imac-unknown-none-elf \
     --features dual-fan -Z build-std=alloc,core
 ```
 
+### Testing
+
+On boot every fan spins at 100% — an immediate visual check that PWM, +5V and
+GND are wired. The serial monitor prints `Got IP: <ip>` once WiFi is up; use
+that IP for the requests below. Reads return a scalar for one fan and an array
+for more, matching the `on`/`speed`/`rpm` schemas.
+
+```
+# turn a fan on/off and set duty (scalar broadcasts to every fan)
+$ curl -X PUT http://<IP>/properties/on    -H 'Content-Type: application/json' -d 'true'
+$ curl -X PUT http://<IP>/properties/speed -H 'Content-Type: application/json' -d '60'
+
+# with dual-fan, target fans by index instead
+$ curl -X PUT http://<IP>/properties/on    -H 'Content-Type: application/json' -d '[true,false]'
+$ curl -X PUT http://<IP>/properties/speed -H 'Content-Type: application/json' -d '[100,40]'
+
+# read back state and measured speed
+$ curl http://<IP>/properties/on
+$ curl http://<IP>/properties/rpm          # e.g. [1234, 0] — fan 0 tach good, fan 1 absent/stopped
+```
+
+Reading `rpm` per fan is the wiring diagnostic: a spinning fan that reads `0`
+has its tach (green) miswired, while a non-spinning fan has a PWM/+5V/GND issue.
+
 ### ESP32-C6 WiFi note
 
 The ESP32-C6 WiFi 6 radio does not work reliably with power-saving modes.
