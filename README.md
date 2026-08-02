@@ -110,15 +110,23 @@ temperature/humidity from an SHT41 sensor via Qwiic.
 | `temperature` | number | R | Ambient temperature from SHT41 (°C) |
 | `humidity` | number | R | Relative humidity from SHT41 (%) |
 | `die_temperature` | number | R | ESP32-C6 internal die temperature (°C) |
-| `on` | boolean | R/W | Fan enable/disable (also toggled by **BOOT**) |
-| `speed` | integer 0–100 | R/W | Fan PWM duty cycle (%) |
-| `rpm` | integer | R | Measured fan speed (RPM) |
+| `fans` | integer | R | Number of fans exposed (1, or 2 with `dual-fan`) |
+| `on` | boolean **or** array of booleans | R/W | Per-fan enable. Scalar broadcasts to every fan; array sets fans by index (out-of-range index → HTTP 400). Also toggled for every fan by **BOOT** |
+| `speed` | integer 0–100 **or** array thereof | R/W | Per-fan PWM duty cycle (%). Same scalar/array semantics as `on` |
+| `rpm` | integer **or** array thereof | R | Measured fan speed (RPM). Scalar when one fan, array when more |
 
-**Events:** `on` (SSE), `temperature` (SSE), `rpm` (SSE)
+With a single fan, reads return scalars (e.g. `true`, `75`, `1234`) and writes
+accept either a scalar or a one-element array. With `dual-fan`, reads return
+arrays (e.g. `[true, false]`, `[75, 100]`) and an array write targets fans by
+position — `[true, false]` enables fan 0 and disables fan 1. A scalar write
+applies to every fan.
 
-The board **BOOT** button toggles property `on` (same state as HTTP
-`PUT /properties/on`). Subscribers on `/events/on` get `value_changed`
-for both button presses and HTTP writes.
+**Events:** `on` (SSE, scalar-or-array like the property), `temperature` (SSE), `rpm` (SSE, scalar-or-array)
+
+The board **BOOT** button toggles every fan's `on` state (each fan flips
+independently; same effect as `PUT /properties/on` with the inverted value per
+fan). Subscribers on `/events/on` get `value_changed` for button presses and
+HTTP writes alike.
 
 ```
 $ cargo run --bin fan --target riscv32imac-unknown-none-elf
@@ -130,9 +138,11 @@ $ cargo run --bin fan --target riscv32imac-unknown-none-elf
 |---|---|---|---|
 | MCU board | SparkFun Qwiic Pocket Dev Board - ESP32-C6 | 1 | ESP32-C6-MINI-1, WiFi 6 + BT 5 |
 | Temp/humidity sensor | Sensirion SHT41 (Qwiic breakout) | 1 | Connected via Qwiic connector |
-| Fan | Noctua NF-A20 5V PWM (200mm) | 1 | Any 5V 4-pin PWM Noctua fan works |
+| Fan | Noctua NF-A20 5V PWM (200mm) | 1–2 | Any 5V 4-pin PWM Noctua fan works. Two requires the `dual-fan` feature |
 
 ### Wiring (fan controller)
+
+Single fan (default build):
 
 ```
 ESP32-C6 board          Fan            SHT41
@@ -142,8 +152,22 @@ GPIO3  ─────────────── Tach (green)   [internal pu
 GND    ─────────────── GND (black)
 V_USB  ─────────────── +5V (yellow)
 Qwiic  ─────────────────────────────  SDA/SCL/VCC/GND
-BOOT   ── (on-board)  toggles property `on`
+BOOT   ── (on-board)  toggles every fan `on`
 ```
+
+Second fan (build with `--features dual-fan`):
+
+```
+ESP32-C6 board          Fan 2
+─────────────          ──────
+GPIO4  ─────────────── PWM (blue)
+GPIO5  ─────────────── Tach (green)   [internal pull-up]
+GND    ─────────────── GND (black)
+V_USB  ─────────────── +5V (yellow)
+```
+
+Both fans share the LEDC timer (`lstimer0`) but use separate channels
+(channel 0 / channel 1) and separate PCNT units (unit 0 / unit 1).
 
 **Notes:**
 - Fan power comes from `V_USB` (5V), **not** `3V3`.
@@ -153,7 +177,26 @@ BOOT   ── (on-board)  toggles property `on`
   Noctua fans (confirmed by Noctua).
 - The SHT41 connects via the Qwiic connector (GPIO6 SDA / GPIO7 SCL).
 - The on-board **BOOT** button is GPIO9 (active-low, internal pull-up) and
-  toggles fan `on` without extra wiring.
+  toggles every fan's `on` without extra wiring.
+
+### Dual-fan build
+
+The `dual-fan` Cargo feature compiles in support for a second 4-pin PWM fan.
+Without it the firmware is byte-for-byte the single-fan sketch. With it, the
+`on` / `speed` / `rpm` properties become scalar-or-array (see the table above)
+and a read-only `fans` property reports the count.
+
+```
+$ cargo xtask build fan --features dual-fan
+$ SSID=<wifi> PASSWORD=<pass> cargo xtask run fan --features dual-fan
+```
+
+Or with plain cargo:
+
+```
+$ cargo run --bin fan --target riscv32imac-unknown-none-elf \
+    --features dual-fan -Z build-std=alloc,core
+```
 
 ### ESP32-C6 WiFi note
 
