@@ -35,11 +35,17 @@ enum Commands {
     Build {
         /// Demo name: thermometer, light, button, fan
         demo: String,
+        /// Extra Cargo features to enable (e.g. `dual-fan` for the fan demo)
+        #[arg(long)]
+        features: Option<String>,
     },
     /// Build and flash a demo to the connected board
     Run {
         /// Demo name: thermometer, light, button, fan
         demo: String,
+        /// Extra Cargo features to enable (e.g. `dual-fan` for the fan demo)
+        #[arg(long)]
+        features: Option<String>,
         /// Serial port (e.g. /dev/cu.usbmodem101). If omitted, espflash auto-detects.
         #[arg(long)]
         port: Option<String>,
@@ -73,13 +79,27 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Build { demo } => {
-            cargo(&demo, "build", &[]);
+        Commands::Build { demo, features } => {
+            let extra: Vec<&str> = features
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| vec!["--features", s])
+                .unwrap_or_default();
+            cargo(&demo, "build", &extra);
         }
-        Commands::Run { demo, port } => {
+        Commands::Run {
+            demo,
+            features,
+            port,
+        } => {
             let (bin, _, target) = find_demo(&demo);
+            let extra: Vec<&str> = features
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| vec!["--features", s])
+                .unwrap_or_default();
             // Build first
-            cargo(&demo, "build", &[]);
+            cargo(&demo, "build", &extra);
 
             // Then flash with espflash
             let binary = format!("target/{target}/debug/{bin}");
