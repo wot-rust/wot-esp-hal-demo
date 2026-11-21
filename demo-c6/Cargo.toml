@@ -17,7 +17,7 @@ esp-backtrace = { workspace = true, features = ["esp32c6", "panic-handler", "pri
 esp-bootloader-esp-idf = { workspace = true, features = ["esp32c6", "log-04"] }
 esp-hal = { workspace = true, features = ["esp32c6", "unstable"] }
 esp-println = { workspace = true, features = ["esp32c6", "log-04"] }
-esp-alloc = { workspace = true }
+esp-alloc = { workspace = true, features = ["esp32c6"] }
 esp-rtos = { workspace = true, features = ["esp32c6", "esp-radio", "embassy", "log-04"] }
 esp-radio = { workspace = true, features = ["esp32c6"] }
 
