@@ -26,7 +26,7 @@ embassy-sync = { workspace = true }
 embassy-time = { workspace = true }
 picoserve = { workspace = true }
 wot-td = { workspace = true }
-sht4x-rjw = { version = "0.2", default-features = false, features = ["async"] }
+sht4x-rjw = { version = "0.2.0", default-features = false, features = ["async"] }
 
 serde_json = { workspace = true }
 static_cell = { workspace = true }
