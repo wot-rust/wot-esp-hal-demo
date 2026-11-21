@@ -9,8 +9,9 @@ runner = "espflash flash --monitor"
 
 [env]
 ESP_LOG="INFO"
-# Disabling PHY USB passthrough improves WiFi reliability on ESP32-C6
-ESP_RADIO_CONFIG_PHY_ENABLE_USB="false"
+# Disabling PHY USB passthrough improves WiFi reliability on ESP32-C6.
+# This option lives in esp-phy since esp-radio 0.18.
+ESP_PHY_CONFIG_PHY_ENABLE_USB="false"
 
 [build]
 rustflags = [
