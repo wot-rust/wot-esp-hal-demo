@@ -37,9 +37,9 @@ embassy-sync = "0.8"
 edge-nal = "0.7"
 edge-nal-embassy = "0.9"
 edge-mdns = "0.8"
-picoserve = { version = "0.18", features = ["embassy", "alloc", "json"] }
+picoserve = { version = "0.21", features = ["embassy", "alloc", "json"] }
 wot-td = { version = "0.6.2", default-features = false, features = ["alloc"] }
-smoltcp = { version = "0.12.0", default-features = false, features = [
+smoltcp = { version = "0.14.0", default-features = false, features = [
     "proto-dhcpv4",
     "proto-ipv4",
     "socket-dhcpv4",
@@ -60,7 +60,6 @@ const-random = "0.1.18"
 portable-atomic = { version = "1.15.0", default-features = false }
 embedded-io = "0.7.1"
 embedded-io-async = "0.7.0"
-fugit = "0.3.9"
 
 # Smart LED (only used by light-c3)
 smart-leds-trait = { version = "0.3.2", features = ["serde"] }
