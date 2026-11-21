@@ -19,12 +19,12 @@ wot-esp-thing = { path = "lib" }
 
 # ESP crates — chip feature selected by each binary crate
 esp-backtrace = { version = "0.20" }
-esp-bootloader-esp-idf = { version = "0.5.0" }
-esp-hal = { version = "1.1" }
+esp-bootloader-esp-idf = { version = "0.6.0" }
+esp-hal = { version = "1.2.2" }
 esp-println = { version = "0.18" }
 esp-alloc = { version = "0.11" }
-esp-rtos = { version = "0.3.0" }
-esp-radio = { version = "0.18", default-features = false }
+esp-rtos = { version = "0.4.0" }
+esp-radio = { version = "1.0.0-beta.1", default-features = false }
 
 # Embassy
 embassy-net = { version = "0.9.1", features = ["tcp", "udp", "dhcpv4", "medium-ethernet"] }
@@ -58,19 +58,14 @@ serde = { version = "1.0.229", default-features = false, features = ["alloc"] }
 uuid = { version = "1.29.3", default-features = false }
 const-random = "0.1.18"
 portable-atomic = { version = "1.15.0", default-features = false }
-embedded-io = "0.7.1"
 embedded-io-async = "0.7.0"
 
 # Smart LED (only used by light-c3)
-smart-leds-trait = { version = "0.3.2", features = ["serde"] }
 smart-leds = { version = "0.4.0", features = ["serde"] }
-esp-hal-smartled = { version = "0.17" }
+esp-hal-smartled = { version = "0.18" }
 
 # SHTC3 sensor (thermometer-c3, fan-c6)
 shtcx = "1.0.0"
-
-[patch.crates-io]
-esp-hal-smartled = { git = "https://github.com/wot-rust/esp-hal-community", branch = "smartled-esp-hal-1.1" }
 
 [profile.dev]
 opt-level = "s"

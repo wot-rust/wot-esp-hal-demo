@@ -10,7 +10,8 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::rmt::Rmt;
+use esp_hal::{rmt::Rmt, time::Rate, Blocking};
+use esp_hal_smartled::{buffer_size, color_order, RmtSmartLeds, WS2812_TIMING};
 use picoserve::{
     extract::State,
     response::StatusCode,
@@ -34,7 +35,7 @@ struct Light<'a> {
     on: bool,
     color: RGB8,
     brightness: u8,
-    led: esp_hal_smartled::SmartLedsAdapter<'a, 25>,
+    led: RmtSmartLeds<'a, { buffer_size::<RGB8>(1) }, Blocking, RGB8, color_order::Grb>,
 }
 
 impl Light<'_> {
@@ -80,15 +81,12 @@ impl wot_esp_thing::EspThingState for AppState {
     ) -> (&'static Self, wot_esp_thing::NetworkPeripherals<'static>) {
         let net = wot_esp_thing::NetworkPeripherals {
             timg0: peripherals.TIMG0,
-            sw_interrupt: peripherals.SW_INTERRUPT,
+            sw_interrupt: peripherals.FROM_CPU_INTR0,
             wifi: peripherals.WIFI,
         };
 
-        let rmt = Rmt::new(peripherals.RMT, esp_hal::time::Rate::from_mhz(80)).unwrap();
-
-        let rmt_buffer = alloc::boxed::Box::leak(alloc::boxed::Box::new(
-            esp_hal_smartled::smart_led_buffer!(1),
-        ));
+        let rmt_freq = Rate::from_mhz(80);
+        let rmt = Rmt::new(peripherals.RMT, rmt_freq).unwrap();
 
         let light = mk_static!(
             Light,
@@ -96,11 +94,13 @@ impl wot_esp_thing::EspThingState for AppState {
                 on: false,
                 brightness: 100,
                 color: WHITE,
-                led: esp_hal_smartled::SmartLedsAdapter::new(
+                led: RmtSmartLeds::<{ buffer_size::<RGB8>(1) }, _, RGB8, color_order::Grb>::new(
+                    WS2812_TIMING,
                     rmt.channel0,
                     peripherals.GPIO2,
-                    rmt_buffer
+                    rmt_freq,
                 )
+                .unwrap()
             }
         );
 

@@ -12,7 +12,8 @@ use embassy_net::{Runner, Stack};
 use embassy_time::{Duration, Timer};
 use esp_println::println;
 use esp_radio::wifi::{
-    sta::StationConfig, Config, ControllerConfig, WifiController, Interface,
+    sta::StationConfig, AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password,
+    Ssid, WifiController,
 };
 
 pub use esp_radio::wifi::PowerSaveMode;
@@ -129,7 +130,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
+pub async fn net_task(mut runner: Runner<'static, Interface>) {
     runner.run().await;
 }
 
@@ -256,7 +257,7 @@ where
 /// them so the library can bring up Wi-Fi / embassy-net.
 pub struct NetworkPeripherals<'d> {
     pub timg0: esp_hal::peripherals::TIMG0<'d>,
-    pub sw_interrupt: esp_hal::peripherals::SW_INTERRUPT<'d>,
+    pub sw_interrupt: esp_hal::peripherals::FROM_CPU_INTR0<'d>,
     pub wifi: esp_hal::peripherals::WIFI<'d>,
 }
 
@@ -303,13 +304,10 @@ where
         let (app_state, net_peripherals) = Props::State::new(spawner, peripherals);
 
         let timg0 = esp_hal::timer::timg::TimerGroup::new(net_peripherals.timg0);
-        let sw_int = esp_hal::interrupt::software::SoftwareInterruptControl::new(
-            net_peripherals.sw_interrupt,
-        );
-        esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+        esp_rtos::start(timg0.timer0, net_peripherals.sw_interrupt);
 
-        let (mut controller, interfaces) =
-            esp_radio::wifi::new(net_peripherals.wifi, ControllerConfig::default()).unwrap();
+        let mut controller =
+            WifiController::new(net_peripherals.wifi, ControllerConfig::default()).unwrap();
 
         controller
             .set_power_saving(Self::WIFI_POWER_SAVE)
@@ -317,12 +315,14 @@ where
 
         let station_config = Config::Station(
             StationConfig::default()
-                .with_ssid(SSID)
-                .with_password(PASSWORD.into()),
+                .with_ssid(Ssid::try_from(SSID).unwrap())
+                .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
+                    Password::try_from(PASSWORD).unwrap(),
+                )),
         );
         controller.set_config(&station_config).unwrap();
 
-        let wifi_interface = interfaces.station;
+        let wifi_interface = Interface::station();
 
         let config = embassy_net::Config::dhcpv4(Default::default());
 

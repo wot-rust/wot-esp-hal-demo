@@ -51,7 +51,7 @@ impl wot_esp_thing::EspThingState for AppState {
     ) -> (&'static Self, wot_esp_thing::NetworkPeripherals<'static>) {
         let net = wot_esp_thing::NetworkPeripherals {
             timg0: peripherals.TIMG0,
-            sw_interrupt: peripherals.SW_INTERRUPT,
+            sw_interrupt: peripherals.FROM_CPU_INTR0,
             wifi: peripherals.WIFI,
         };
 
